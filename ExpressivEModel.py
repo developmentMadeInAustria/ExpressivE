@@ -3,7 +3,7 @@ from typing import ClassVar, Mapping, Any
 import torch
 from pykeen.losses import NSSALoss
 from pykeen.models import ERModel
-from pykeen.nn import EmbeddingSpecification
+from pykeen.nn.representation import Embedding
 
 from Ablations import EqSlopesInteraction, FunctionalInteraction, NoCenterInteraction, OneBandInteraction
 from ExpressivEInteraction import ExpressivEInteraction
@@ -29,6 +29,8 @@ class ExpressivE(ERModel):
             **kwargs,
     ) -> None:
 
+        triples_factory = kwargs['triples_factory']
+
         if min_denom > 0 and interactionMode != 'baseExpressivE':
             raise Exception('The specified ExpressivE variant does not use the <min_denom> argument.\\'
                             'Please set <min_denom>=0.')
@@ -39,10 +41,12 @@ class ExpressivE(ERModel):
 
             super().__init__(
                 interaction=ExpressivEInteraction(p=p, min_denom=min_denom, tanh_map=tanh_map),
-                entity_representations=EmbeddingSpecification(
+                entity_representations=Embedding(
+                    num_embeddings=triples_factory.num_entities,
                     embedding_dim=embedding_dim,
                 ),
-                relation_representations=EmbeddingSpecification(
+                relation_representations=Embedding(
+                    num_embeddings=triples_factory.num_relations,
                     embedding_dim=6 * embedding_dim,
                 ),  # d_h, d_t, c_h, c_t, s_h, s_t
                 **kwargs,
@@ -54,10 +58,12 @@ class ExpressivE(ERModel):
 
             super().__init__(
                 interaction=FunctionalInteraction(p=p, tanh_map=tanh_map),
-                entity_representations=EmbeddingSpecification(
+                entity_representations=Embedding(
+                    num_embeddings=triples_factory.num_entities,
                     embedding_dim=embedding_dim,
                 ),
-                relation_representations=EmbeddingSpecification(
+                relation_representations=Embedding(
+                    num_embeddings=triples_factory.num_relations,
                     embedding_dim=4 * embedding_dim,
                 ),  # c_h, c_t, s_h, s_t
                 **kwargs,
@@ -69,10 +75,12 @@ class ExpressivE(ERModel):
 
             super().__init__(
                 interaction=EqSlopesInteraction(p=p, embedding_dim=embedding_dim, tanh_map=tanh_map),
-                entity_representations=EmbeddingSpecification(
+                entity_representations=Embedding(
+                    num_embeddings=triples_factory.num_entities,
                     embedding_dim=embedding_dim,
                 ),
-                relation_representations=EmbeddingSpecification(
+                relation_representations=Embedding(
+                    num_embeddings=triples_factory.num_relations,
                     embedding_dim=4 * embedding_dim,
                 ),  # d_h, d_t, c_h, c_t
                 **kwargs,
@@ -86,10 +94,12 @@ class ExpressivE(ERModel):
 
             super().__init__(
                 interaction=NoCenterInteraction(p=p, tanh_map=tanh_map),
-                entity_representations=EmbeddingSpecification(
+                entity_representations=Embedding(
+                    num_embeddings=triples_factory.num_entities,
                     embedding_dim=embedding_dim,
                 ),
-                relation_representations=EmbeddingSpecification(
+                relation_representations=Embedding(
+                    num_embeddings=triples_factory.num_relations,
                     embedding_dim=4 * embedding_dim,
                 ),  # d_h, d_t, s_h, s_t
                 **kwargs,
@@ -101,10 +111,12 @@ class ExpressivE(ERModel):
 
             super().__init__(
                 interaction=OneBandInteraction(p=p, tanh_map=tanh_map),
-                entity_representations=EmbeddingSpecification(
+                entity_representations=Embedding(
+                    num_embeddings=triples_factory.num_entities,
                     embedding_dim=embedding_dim,
                 ),
-                relation_representations=EmbeddingSpecification(
+                relation_representations=Embedding(
+                    num_embeddings=triples_factory.num_relations,
                     embedding_dim=3 * embedding_dim,
                 ),  # d, c, s
                 **kwargs,

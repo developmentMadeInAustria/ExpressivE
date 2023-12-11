@@ -1,6 +1,5 @@
 import torch
 from pykeen.nn.modules import Interaction
-from pykeen.utils import broadcast_cat
 
 from Utils import preprocess_relations, preprocess_entities
 

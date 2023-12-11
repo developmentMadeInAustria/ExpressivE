@@ -1,6 +1,5 @@
 import torch
 from pykeen.nn.modules import Interaction
-from pykeen.utils import broadcast_cat
 
 from Utils import preprocess_entities, positive_sign
 
@@ -21,8 +20,8 @@ class NoCenterInteraction(Interaction):
     def get_score(self, d, s, h, t):
         # Calculate the score of the triple
 
-        ht = broadcast_cat([h, t], dim=-1)
-        th = broadcast_cat([t, h], dim=-1)
+        ht = torch.cat(torch.broadcast_tensors(h, t), dim=-1)
+        th = torch.cat(torch.broadcast_tensors(t, h), dim=-1)
 
         contextualized_pos = torch.abs(ht - torch.mul(s, th))
 

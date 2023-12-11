@@ -1,6 +1,5 @@
 import torch
 from pykeen.nn.modules import Interaction
-from pykeen.utils import broadcast_cat
 
 from Utils import preprocess_entities, positive_sign
 
@@ -24,8 +23,8 @@ class FunctionalInteraction(Interaction):
         c = torch.concat([c_h, c_t], dim=-1)  # centers
         s = torch.concat([s_t, s_h], dim=-1)  # slopes
 
-        ht = broadcast_cat([h, t], dim=-1)
-        th = broadcast_cat([t, h], dim=-1)
+        ht = torch.cat(torch.broadcast_tensors(h, t), dim=-1)
+        th = torch.cat(torch.broadcast_tensors(t, h), dim=-1)
 
         dist = torch.abs(ht - c - torch.mul(s, th))
 
