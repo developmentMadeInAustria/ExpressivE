@@ -12,3 +12,4 @@ dependencies:
       - setuptools==59.5.0
       - protobuf==3.20.*
       - tensorboard==2.15.1
+      - pandas==2.1.4
