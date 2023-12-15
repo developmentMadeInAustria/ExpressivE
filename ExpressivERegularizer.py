@@ -10,11 +10,15 @@ from pykeen.triples import TriplesFactory
 from typing import Optional, Mapping, Any
 import re
 
+from Utils import preprocess_relations
+
 
 class ExpressivERegularizer(Regularizer):
 
     __factory: TriplesFactory
     __rules: pd.DataFrame
+    __tanh_map: bool
+    __min_denom: float
 
     def __init__(
             self,
@@ -23,10 +27,15 @@ class ExpressivERegularizer(Regularizer):
             rules: str,
             rules_max_body_atoms: int,
             rule_min_confidence: float,
+            tanh_map: bool = True,
+            min_denom: float = 0.5,
             **kwargs
     ) -> None:
         super().__init__(**kwargs)
 
+        self.__tanh_map = tanh_map
+        self.__min_denom = min_denom
+        # TODO: Add argument regularizer weight
         # TODO: Check arguments, if rules_max_body_atoms larger than currently implemented, raise error
 
         # Future Improvement: Move loading to a separate class to allow loading of different formats (AnyBURL, AMIE)
@@ -135,7 +144,7 @@ class ExpressivERegularizer(Regularizer):
             body_indices = torch.tensor(body_ids)
             body_weights = torch.index_select(weights, 0, body_indices)
             head_weights = weights[head_id, :]
-            head_weights = torch.reshape(head_weights, (1, 6))
+            head_weights = torch.reshape(head_weights, (1, -1))
             rule_weights = torch.cat((body_weights, head_weights), dim=0)
             return self.general_composition_loss(rule_weights)
         else:
@@ -172,9 +181,10 @@ class ExpressivERegularizer(Regularizer):
         :return: The loss for general composition
         """
 
-        d1_h, d1_t, c1_h, c1_t, s1_h, s1_t = weights[0, :]
-        d2_h, d2_t, c2_h, c2_t, s2_h, s2_t = weights[1, :]
-        d3_h, d3_t, c3_h, c3_t, s3_h, s3_t = weights[2, :]
+        rel_1 = preprocess_relations(weights[0, :], tanh_map=self.__tanh_map, min_denom=self.__min_denom)
+        rel_2 = preprocess_relations(weights[1, :], tanh_map=self.__tanh_map, min_denom=self.__min_denom)
+        rel_3 = preprocess_relations(weights[2, :], tanh_map=self.__tanh_map, min_denom=self.__min_denom)
+        d3_h, d3_t, c3_h, c3_t, s3_h, s3_t = rel_3
 
         # Calculate four corner points of head relation
         corner1_x = ((c3_t-c3_h) + (d3_t-d3_h)) / (s3_t-s3_h) # top right
@@ -190,10 +200,39 @@ class ExpressivERegularizer(Regularizer):
         corner4_y = c3_t + d3_t + s3_h * corner4_x
 
         # Check each inequality with each corner point
+        corner1_loss = self.general_composition_corner_loss(corner1_x, corner1_y, rel_1, rel_2)
+        corner2_loss = self.general_composition_corner_loss(corner2_x, corner2_y, rel_1, rel_2)
+        corner3_loss = self.general_composition_corner_loss(corner3_x, corner3_y, rel_1, rel_2)
+        corner4_loss = self.general_composition_corner_loss(corner4_x, corner4_y, rel_1, rel_2)
 
-        # Return sum of max mismatch for each corner
+        return corner1_loss + corner2_loss + corner3_loss + corner4_loss
 
-        return 0
+    def general_composition_corner_loss(self, corner_x, corner_y, rel_1, rel_2) -> float:
+        d1_h, d1_t, c1_h, c1_t, s1_h, s1_t = rel_1
+        d2_h, d2_t, c2_h, c2_t, s2_h, s2_t = rel_2
+
+        zero_loss = torch.zeros(corner_x.size())
+        ones = torch.ones(corner_x.size())
+
+        eq1_loss = abs(corner_x - corner_y*s1_t*s2_t - c2_h*s1_t - c1_h) - d2_h*s1_t - d1_h
+        eq1_loss = torch.sum(torch.maximum(zero_loss, eq1_loss))
+
+        eq2_loss = abs(corner_y*s2_t + c2_h - corner_x*s1_h - c1_t) - d1_t - d2_h
+        eq2_loss = torch.sum(torch.maximum(zero_loss, eq2_loss))
+
+        eq3_loss = abs(corner_y - corner_x*s1_h*s2_h - c1_t*s2_h - c2_t) - d1_t*s2_h - d2_t
+        eq3_loss = torch.sum(torch.maximum(zero_loss, eq3_loss))
+
+        eq4_loss = abs(corner_y + (c1_h - corner_x)*s2_h/s1_t - c2_t) - d1_h*s2_h/s1_t - d2_t
+        eq4_loss = torch.sum(torch.maximum(zero_loss, eq4_loss))
+
+        eq5_loss = abs(corner_x*(ones - s1_h*s1_t) - c1_t*s1_t - c1_h) - d1_t*s1_t - d1_h
+        eq5_loss = torch.sum(torch.maximum(zero_loss, eq5_loss))
+
+        eq6_loss = abs(corner_y*(ones - s2_h*s2_t) - c2_h*s2_h - c2_t) - d2_h*s2_h - d2_t
+        eq6_loss = torch.sum(torch.maximum(zero_loss, eq6_loss))
+
+        return eq1_loss + eq2_loss + eq3_loss + eq4_loss + eq5_loss + eq6_loss
 
 
 if __name__ == '__main__':
@@ -204,3 +243,23 @@ if __name__ == '__main__':
                                    [0.1, 0.2, 0.1, 0.3, 0.1, 0.4], [0.1, 0.5, 0.1, 0.6, 0.1, 0.7], [0.1, 0.8, 0.1, 0.9, 0.1, 0.10],
                                    [0.1, 0.2, 0.1, 0.3, 0.1, 0.4], [0.1, 0.5, 0.1, 0.6, 0.1, 0.7], [0.1, 0.8, 0.1, 0.9, 0.1, 0.10],
                                    [0.1, 0.2, 0.1, 0.3, 0.1, 0.4], [0.1, 0.5, 0.1, 0.6, 0.1, 0.7], [0.1, 0.8, 0.1, 0.9, 0.1, 0.10],]))
+
+    reg.forward(torch.FloatTensor(
+        [[0.1, 0.2, 0.1, 0.3, 0.1, 0.4, 0.1, 0.2, 0.1, 0.3, 0.1, 0.4],
+         [0.1, 0.5, 0.1, 0.6, 0.1, 0.7, 0.1, 0.5, 0.1, 0.6, 0.1, 0.7],
+         [0.1, 0.8, 0.1, 0.9, 0.1, 0.10, 0.1, 0.8, 0.1, 0.9, 0.1, 0.10],
+         [0.1, 0.2, 0.1, 0.3, 0.1, 0.4, 0.1, 0.2, 0.1, 0.3, 0.1, 0.4],
+         [0.1, 0.5, 0.1, 0.6, 0.1, 0.7, 0.1, 0.5, 0.1, 0.6, 0.1, 0.7],
+         [0.1, 0.8, 0.1, 0.9, 0.1, 0.10, 0.1, 0.8, 0.1, 0.9, 0.1, 0.10],
+         [0.1, 0.2, 0.1, 0.3, 0.1, 0.4, 0.1, 0.2, 0.1, 0.3, 0.1, 0.4],
+         [0.1, 0.5, 0.1, 0.6, 0.1, 0.7, 0.1, 0.5, 0.1, 0.6, 0.1, 0.7],
+         [0.1, 0.8, 0.1, 0.9, 0.1, 0.10, 0.1, 0.8, 0.1, 0.9, 0.1, 0.10],
+         [0.1, 0.2, 0.1, 0.3, 0.1, 0.4, 0.1, 0.2, 0.1, 0.3, 0.1, 0.4],
+         [0.1, 0.5, 0.1, 0.6, 0.1, 0.7, 0.1, 0.5, 0.1, 0.6, 0.1, 0.7],
+         [0.1, 0.8, 0.1, 0.9, 0.1, 0.10, 0.1, 0.8, 0.1, 0.9, 0.1, 0.10],
+         [0.1, 0.2, 0.1, 0.3, 0.1, 0.4, 0.1, 0.2, 0.1, 0.3, 0.1, 0.4],
+         [0.1, 0.5, 0.1, 0.6, 0.1, 0.7, 0.1, 0.5, 0.1, 0.6, 0.1, 0.7],
+         [0.1, 0.8, 0.1, 0.9, 0.1, 0.10, 0.1, 0.8, 0.1, 0.9, 0.1, 0.10],
+         [0.1, 0.2, 0.1, 0.3, 0.1, 0.4, 0.1, 0.2, 0.1, 0.3, 0.1, 0.4],
+         [0.1, 0.5, 0.1, 0.6, 0.1, 0.7, 0.1, 0.5, 0.1, 0.6, 0.1, 0.7],
+         [0.1, 0.8, 0.1, 0.9, 0.1, 0.10, 0.1, 0.8, 0.1, 0.9, 0.1, 0.10]]))
