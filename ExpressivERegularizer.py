@@ -31,6 +31,7 @@ class ExpressivERegularizer(Regularizer):
             min_denom: float = 0.5,
             **kwargs
     ) -> None:
+        kwargs['apply_only_once'] = True
         super().__init__(**kwargs)
 
         self.__tanh_map = tanh_map
@@ -43,7 +44,6 @@ class ExpressivERegularizer(Regularizer):
         # get dataset and triples factory
         mutable_dataset_kwargs = dict(dataset_kwargs)
         mutable_dataset_kwargs['eager'] = True
-        # TODO: Add apply only once argument to mutable_dataset_kwargs
         dataset = get_dataset(dataset=dataset, dataset_kwargs=mutable_dataset_kwargs)
         # noinspection PyTypeChecker
         self.__factory: TriplesFactory = dataset.training
@@ -130,8 +130,12 @@ class ExpressivERegularizer(Regularizer):
     def __compute_loss_one_atom(self, body_args, head_args, body_ids, head_id, weights) -> float:
         if head_args == 'X,Y':
             # hierarchy: r(x,y) -> s(x,y) = r(x,y) and i(y,y) -> s(x,y)
-            # TODO: Add computation
-            return 0
+            body_weights = weights[body_ids[0], :]
+            embedding_dim = int(len(body_weights) / 6)
+            self_loop = torch.cat((torch.zeros(embedding_dim*4), torch.ones(embedding_dim*2)))
+            head_weights = weights[head_id, :]
+            rule_weights = torch.stack((body_weights, self_loop, head_weights))
+            return self.general_composition_loss(rule_weights)
         else:
             # inversion: r(x,y) -> r(y,x) = r(x,y) and i(y,y) -> r(y,x)
             print("Loss for inversion rules not implemented yet")
@@ -173,16 +177,19 @@ class ExpressivERegularizer(Regularizer):
                 # New variable on left side
                 return self.__compute_chain_order(body_args[1:], current_chain + [False], body_args[0][2])
 
-    def general_composition_loss(self, weights) -> float:
+    def general_composition_loss(self, weights, self_loop=False) -> float:
         """
         Computes the general composition loss (for two body atoms)
 
+        :param self_loop: Determines, if the second weight (second body atom) is the self loop relation.
         :param weights: Weights for all three relations (two body relations, one head relation)
         :return: The loss for general composition
         """
 
         rel_1 = preprocess_relations(weights[0, :], tanh_map=self.__tanh_map, min_denom=self.__min_denom)
-        rel_2 = preprocess_relations(weights[1, :], tanh_map=self.__tanh_map, min_denom=self.__min_denom)
+        rel_2 = weights[1, :]
+        if not self_loop:
+            rel_2 = preprocess_relations(rel_2, tanh_map=self.__tanh_map, min_denom=self.__min_denom)
         rel_3 = preprocess_relations(weights[2, :], tanh_map=self.__tanh_map, min_denom=self.__min_denom)
         d3_h, d3_t, c3_h, c3_t, s3_h, s3_t = rel_3
 
