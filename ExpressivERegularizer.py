@@ -70,8 +70,14 @@ class ExpressivERegularizer(Regularizer):
         self.__rules = rule_df
 
     def forward(self, x: torch.FloatTensor) -> torch.FloatTensor:
-        rule_loss = self.__rules.apply(lambda row: self.__compute_loss(row, x), axis=1)
-        return torch.FloatTensor([rule_loss.sum()])
+        # apply() + sum() throws error
+        # "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
+
+        # TODO: If lots of rules, split dataframe and parallelize
+        rules_loss = 0
+        for idx, row in self.__rules.iterrows():
+            rules_loss += self.__compute_loss(row, x)
+        return torch.FloatTensor(rules_loss)
 
     def __no_const_body(self, atoms: [str]) -> bool:
         arguments = map(self.__extract_arguments, atoms)

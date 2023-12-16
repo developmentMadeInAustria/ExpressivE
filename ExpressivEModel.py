@@ -1,9 +1,11 @@
 from typing import ClassVar, Mapping, Any
+from class_resolver import HintOrType, OptionalKwargs
 
 import torch
 from pykeen.losses import NSSALoss
 from pykeen.models import ERModel
 from pykeen.nn.representation import Embedding
+from pykeen.regularizers import Regularizer
 
 from Ablations import EqSlopesInteraction, FunctionalInteraction, NoCenterInteraction, OneBandInteraction
 from ExpressivEInteraction import ExpressivEInteraction
@@ -26,6 +28,8 @@ class ExpressivE(ERModel):
             min_denom=0.5,
             tanh_map=True,
             interactionMode='baseExpressivE',
+            regularizer: HintOrType[Regularizer] = None,
+            regularizer_kwargs: OptionalKwargs = None,
             **kwargs,
     ) -> None:
 
@@ -124,3 +128,11 @@ class ExpressivE(ERModel):
 
         else:
             raise Exception('<<< Interaction Mode unkown! >>>')
+
+        if regularizer is not None:
+            self.append_weight_regularizer(
+                parameter=self.relation_representations[0].parameters(),
+                regularizer=regularizer,
+                regularizer_kwargs=regularizer_kwargs,
+            )
+

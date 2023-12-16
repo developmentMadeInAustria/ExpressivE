@@ -7,6 +7,7 @@ from pykeen.pipeline import pipeline
 from torch.optim import Adam, Adagrad
 
 from ExpressivEModel import ExpressivE
+from ExpressivERegularizer import ExpressivERegularizer
 from Analysis_Utils import analyze_checkpoints
 
 
@@ -88,7 +89,15 @@ def parse_config(config):
     else:
         raise Exception('Model %s unknown!' % config['model'])
 
-    return optimizer, model, model_kwargs
+    if config['regularizer'] == 'ExpressivERegularizer':
+        regularizer = ExpressivERegularizer
+        regularizer_kwargs = config['regularizer_kwargs']
+
+    else:
+        regularizer = None
+        regularizer_kwargs = None
+
+    return optimizer, model, model_kwargs, regularizer, regularizer_kwargs
 
 
 def evaluate_and_save_final_result(seeds, res, experiment_dir, config_path, sub_dir):
@@ -119,7 +128,7 @@ def evaluate_and_save_final_result(seeds, res, experiment_dir, config_path, sub_
 
 def main(**kwargs):
     config_path, config, sub_dir, seeds, train, test = parse_kwargs(**kwargs)
-    optimizer, model, model_kwargs = parse_config(config)
+    optimizer, model, model_kwargs, regularizer, regularizer_kwargs = parse_config(config)
 
     res = {}
 
@@ -140,6 +149,8 @@ def main(**kwargs):
                 loss_kwargs=dict(reduction=config['loss_kwargs']['reduction'],
                                  adversarial_temperature=config['loss_kwargs']['adversarial_temperature'],
                                  margin=config['loss_kwargs']['margin']),
+                regularizer=regularizer,
+                regularizer_kwargs=regularizer_kwargs,
                 result_tracker='tensorboard',
                 result_tracker_kwargs=dict(
                     experiment_path=experiment_dir + '/logs' + sub_dir_seed,
