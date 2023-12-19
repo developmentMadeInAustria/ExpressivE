@@ -74,10 +74,15 @@ class ExpressivERegularizer(Regularizer):
         # "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
 
         # TODO: If lots of rules, split dataframe and parallelize
-        rules_loss = 0
+        # TODO: Visualize rules loss in tensorboard
+        rules_loss = None
         for idx, row in self.__rules.iterrows():
-            rules_loss += self.__compute_loss(row, x)
-        return torch.FloatTensor(rules_loss)
+            rule_loss = self.__compute_loss(row, x)
+            if rules_loss is None:
+                rules_loss = rule_loss
+            else:
+                rules_loss += rule_loss
+        return rules_loss
 
     def __no_const_body(self, atoms: [str]) -> bool:
         arguments = map(self.__extract_arguments, atoms)
@@ -117,7 +122,7 @@ class ExpressivERegularizer(Regularizer):
 
         return relation
 
-    def __compute_loss(self, rule, weights) -> float:
+    def __compute_loss(self, rule, weights) -> torch.FloatTensor:
         body_args = map(self.__extract_arguments, rule['body'])
         body_args = list(map(lambda args: args[1:-1], body_args))
         head_args = self.__extract_arguments(rule['head'])
@@ -133,7 +138,7 @@ class ExpressivERegularizer(Regularizer):
         return 0
 
     # TODO: Move to separate class
-    def __compute_loss_one_atom(self, body_args, head_args, body_ids, head_id, weights) -> float:
+    def __compute_loss_one_atom(self, body_args, head_args, body_ids, head_id, weights) -> torch.FloatTensor:
         if head_args == 'X,Y':
             # hierarchy: r(x,y) -> s(x,y) = r(x,y) and i(y,y) -> s(x,y)
             body_weights = weights[body_ids[0], :]
@@ -147,7 +152,7 @@ class ExpressivERegularizer(Regularizer):
             print("Loss for inversion rules not implemented yet")
             return 0
 
-    def __compute_loss_two_atoms(self, body_args, head_args, body_ids, head_id, weights) -> float:
+    def __compute_loss_two_atoms(self, body_args, head_args, body_ids, head_id, weights) -> torch.FloatTensor:
         chain_order = self.__compute_chain_order(body_args, [], 'X')
 
         if all(chain_order) and head_args == 'X,Y':
@@ -183,7 +188,7 @@ class ExpressivERegularizer(Regularizer):
                 # New variable on left side
                 return self.__compute_chain_order(body_args[1:], current_chain + [False], body_args[0][2])
 
-    def general_composition_loss(self, weights, self_loop=False) -> float:
+    def general_composition_loss(self, weights, self_loop=False) -> torch.FloatTensor:
         """
         Computes the general composition loss (for two body atoms)
 
@@ -220,32 +225,34 @@ class ExpressivERegularizer(Regularizer):
 
         return corner1_loss + corner2_loss + corner3_loss + corner4_loss
 
-    def general_composition_corner_loss(self, corner_x, corner_y, rel_1, rel_2) -> float:
+    def general_composition_corner_loss(self, corner_x, corner_y, rel_1, rel_2) -> torch.FloatTensor:
         d1_h, d1_t, c1_h, c1_t, s1_h, s1_t = rel_1
         d2_h, d2_t, c2_h, c2_t, s2_h, s2_t = rel_2
 
         zero_loss = torch.zeros(corner_x.size())
         ones = torch.ones(corner_x.size())
 
+        # TODO: Discuss aggregation function.
         eq1_loss = abs(corner_x - corner_y*s1_t*s2_t - c2_h*s1_t - c1_h) - d2_h*s1_t - d1_h
-        eq1_loss = torch.sum(torch.maximum(zero_loss, eq1_loss))
+        eq1_loss = torch.mean(torch.maximum(zero_loss, eq1_loss))
 
         eq2_loss = abs(corner_y*s2_t + c2_h - corner_x*s1_h - c1_t) - d1_t - d2_h
-        eq2_loss = torch.sum(torch.maximum(zero_loss, eq2_loss))
+        eq2_loss = torch.mean(torch.maximum(zero_loss, eq2_loss))
 
         eq3_loss = abs(corner_y - corner_x*s1_h*s2_h - c1_t*s2_h - c2_t) - d1_t*s2_h - d2_t
-        eq3_loss = torch.sum(torch.maximum(zero_loss, eq3_loss))
+        eq3_loss = torch.mean(torch.maximum(zero_loss, eq3_loss))
 
         eq4_loss = abs(corner_y + (c1_h - corner_x)*s2_h/s1_t - c2_t) - d1_h*s2_h/s1_t - d2_t
-        eq4_loss = torch.sum(torch.maximum(zero_loss, eq4_loss))
+        eq4_loss = torch.mean(torch.maximum(zero_loss, eq4_loss))
 
         eq5_loss = abs(corner_x*(ones - s1_h*s1_t) - c1_t*s1_t - c1_h) - d1_t*s1_t - d1_h
-        eq5_loss = torch.sum(torch.maximum(zero_loss, eq5_loss))
+        eq5_loss = torch.mean(torch.maximum(zero_loss, eq5_loss))
 
         eq6_loss = abs(corner_y*(ones - s2_h*s2_t) - c2_h*s2_h - c2_t) - d2_h*s2_h - d2_t
-        eq6_loss = torch.sum(torch.maximum(zero_loss, eq6_loss))
+        eq6_loss = torch.mean(torch.maximum(zero_loss, eq6_loss))
 
-        return eq1_loss + eq2_loss + eq3_loss + eq4_loss + eq5_loss + eq6_loss
+        max_loss = max(eq1_loss, eq2_loss, eq3_loss, eq4_loss, eq5_loss, eq6_loss)
+        return torch.FloatTensor(max_loss)
 
 
 if __name__ == '__main__':
