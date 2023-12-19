@@ -17,6 +17,8 @@ class ExpressivERegularizer(Regularizer):
 
     __factory: TriplesFactory
     __rules: pd.DataFrame
+    __alpha: float
+    __apply_rule_confidence: bool
     __tanh_map: bool
     __min_denom: float
 
@@ -25,8 +27,10 @@ class ExpressivERegularizer(Regularizer):
             dataset: str,
             dataset_kwargs: Optional[Mapping[str, Any]],
             rules: str,
-            rules_max_body_atoms: int,
-            rule_min_confidence: float,
+            rules_max_body_atoms: int = 2,
+            rule_min_confidence: float = 0.1,
+            alpha: float = 1,
+            apply_rule_confidence = False,
             tanh_map: bool = True,
             min_denom: float = 0.5,
             **kwargs
@@ -34,10 +38,19 @@ class ExpressivERegularizer(Regularizer):
         kwargs['apply_only_once'] = True
         super().__init__(**kwargs)
 
+        if rules_max_body_atoms > 2:
+            raise ValueError("Error: regularizer only for up to two body atoms implemented!")
+
+        if rule_min_confidence > 1:
+            raise ValueError("Error: minimum rule confidence can't be greater than one!")
+
+        if alpha < 0:
+            raise ValueError("Error: alpha must be greater than zero!")
+        self.__alpha = alpha
+
+        self.__apply_rule_confidence = apply_rule_confidence
         self.__tanh_map = tanh_map
         self.__min_denom = min_denom
-        # TODO: Add argument regularizer weight
-        # TODO: Check arguments, if rules_max_body_atoms larger than currently implemented, raise error
 
         # Future Improvement: Move loading to a separate class to allow loading of different formats (AnyBURL, AMIE)
 
@@ -77,12 +90,15 @@ class ExpressivERegularizer(Regularizer):
         # TODO: Visualize rules loss in tensorboard
         rules_loss = None
         for idx, row in self.__rules.iterrows():
-            rule_loss = self.__compute_loss(row, x)
+            rule_multiplier = row['confidence'] if self.__apply_rule_confidence else 1.0
+            rule_loss = rule_multiplier * self.__compute_loss(row, x)
+
             if rules_loss is None:
                 rules_loss = rule_loss
             else:
                 rules_loss += rule_loss
-        return rules_loss
+
+        return self.__alpha * rules_loss
 
     def __no_const_body(self, atoms: [str]) -> bool:
         arguments = map(self.__extract_arguments, atoms)
@@ -135,6 +151,7 @@ class ExpressivERegularizer(Regularizer):
         elif rule['body_count'] == 2:
             return self.__compute_loss_two_atoms(body_args, head_args, rule['body_ids'], rule['head_id'], weights)
 
+        # TODO: Either raise error/ put assertion failure as this can't happen
         return 0
 
     # TODO: Move to separate class
