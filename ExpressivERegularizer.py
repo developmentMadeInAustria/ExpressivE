@@ -170,18 +170,23 @@ class ExpressivERegularizer(Regularizer):
             return 0
 
     def __compute_loss_two_atoms(self, body_args, head_args, body_ids, head_id, weights) -> torch.FloatTensor:
+        if head_args != 'X,Y':
+            print("Only rules with head (X,Y) supported!")
+            return torch.FloatTensor([0])
+
         chain_order = self.__compute_chain_order(body_args, [], 'X')
 
-        if all(chain_order) and head_args == 'X,Y':
-            body_indices = torch.tensor(body_ids)
-            body_weights = torch.index_select(weights, 0, body_indices)
-            head_weights = weights[head_id, :]
-            head_weights = torch.reshape(head_weights, (1, -1))
-            rule_weights = torch.cat((body_weights, head_weights), dim=0)
-            return self.general_composition_loss(rule_weights)
-        else:
-            print("Loss function only for chained, connected rules without inverted variables implemented.")
-            return 0
+        body_indices = torch.tensor(body_ids)
+        body_weights = torch.index_select(weights, 0, body_indices)
+        flipped_weights = self.__flip_weights(body_weights)
+        chain_order_access = [[chain_order[0]] * body_weights.size()[1], [chain_order[1]] * body_weights.size()[1]]
+        loss_body_weights = torch.where(torch.tensor(chain_order_access), body_weights, flipped_weights)
+
+        head_weights = weights[head_id, :]
+        head_weights = torch.reshape(head_weights, (1, -1))
+
+        rule_weights = torch.cat((loss_body_weights, head_weights), dim=0)
+        return self.general_composition_loss(rule_weights)
 
     def __compute_chain_order(self, body_args, current_chain, prev_dangling_atom) -> [bool]:
         """
@@ -204,6 +209,23 @@ class ExpressivERegularizer(Regularizer):
             else:
                 # New variable on left side
                 return self.__compute_chain_order(body_args[1:], current_chain + [False], body_args[0][2])
+
+    def __flip_weights(self, weights: torch.Tensor) -> torch.Tensor:
+        num_weights = weights.size()[0]
+        embedding_dim = int(weights.size()[1] / 6)
+
+        idx_list = []
+        counter = 0
+        for i in range(0, num_weights * 3):
+            idx_list += list(range(embedding_dim + counter * (2 * embedding_dim), (counter + 1) * (2 * embedding_dim)))
+            idx_list += list(range(counter * (2 * embedding_dim), embedding_dim + counter * (2 * embedding_dim)))
+
+            counter += 1
+
+        single_dim_weights = torch.flatten(weights)
+        single_dim_flipped = single_dim_weights[idx_list]
+        flipped = single_dim_flipped.view(num_weights, -1)
+        return flipped
 
     def general_composition_loss(self, weights, self_loop=False) -> torch.FloatTensor:
         """
