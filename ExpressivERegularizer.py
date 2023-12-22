@@ -156,7 +156,11 @@ class ExpressivERegularizer(Regularizer):
 
     # TODO: Move to separate class
     def __compute_loss_one_atom(self, body_args, head_args, body_ids, head_id, weights) -> torch.FloatTensor:
-        if head_args == 'X,Y':
+        if head_args != 'X,Y':
+            print("Only rules with head (X,Y) supported!")
+            return torch.FloatTensor([0])
+
+        if body_args[0] == 'X,Y':
             # hierarchy: r(x,y) -> s(x,y) = r(x,y) and i(y,y) -> s(x,y)
             body_weights = weights[body_ids[0], :]
             embedding_dim = int(len(body_weights) / 6)
