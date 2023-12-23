@@ -9,18 +9,22 @@ from pykeen.triples import TriplesFactory
 
 from typing import Optional, Mapping, Any
 import re
+import os
 
 from Utils import preprocess_relations
 
 
 class ExpressivERegularizer(Regularizer):
 
-    __factory: TriplesFactory
-    __rules: pd.DataFrame
     __alpha: float
     __apply_rule_confidence: bool
     __tanh_map: bool
     __min_denom: float
+
+    __device: torch.device
+
+    __factory: TriplesFactory
+    __rules: pd.DataFrame
 
     def __init__(
             self,
@@ -51,6 +55,11 @@ class ExpressivERegularizer(Regularizer):
         self.__apply_rule_confidence = apply_rule_confidence
         self.__tanh_map = tanh_map
         self.__min_denom = min_denom
+
+        if 'CUDA_VISIBLE_DEVICES' in os.environ:
+            self.__device = torch.device('cuda:' + os.environ['CUDA_VISIBLE_DEVICES'])
+        else:
+            self.__device = torch.device('cpu')
 
         # Future Improvement: Move loading to a separate class to allow loading of different formats (AnyBURL, AMIE)
 
@@ -180,7 +189,7 @@ class ExpressivERegularizer(Regularizer):
 
         chain_order = self.__compute_chain_order(body_args, [], 'X')
 
-        body_indices = torch.tensor(body_ids)
+        body_indices = torch.tensor(body_ids, device=self.__device, requires_grad=True)
         body_weights = torch.index_select(weights, 0, body_indices)
         flipped_weights = self.__flip_weights(body_weights)
         chain_order_access = [[chain_order[0]] * body_weights.size()[1], [chain_order[1]] * body_weights.size()[1]]
