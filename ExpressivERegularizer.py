@@ -189,7 +189,7 @@ class ExpressivERegularizer(Regularizer):
 
         chain_order = self.__compute_chain_order(body_args, [], 'X')
 
-        body_indices = torch.tensor(body_ids, device=self.__device, requires_grad=True)
+        body_indices = torch.tensor(body_ids, device=self.__device)
         body_weights = torch.index_select(weights, 0, body_indices)
         flipped_weights = self.__flip_weights(body_weights)
         chain_order_access = [[chain_order[0]] * body_weights.size()[1], [chain_order[1]] * body_weights.size()[1]]
