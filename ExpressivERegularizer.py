@@ -281,8 +281,8 @@ class ExpressivERegularizer(Regularizer):
         d1_h, d1_t, c1_h, c1_t, s1_h, s1_t = rel_1
         d2_h, d2_t, c2_h, c2_t, s2_h, s2_t = rel_2
 
-        zero_loss = torch.zeros(corner_x.size())
-        ones = torch.ones(corner_x.size())
+        zero_loss = torch.zeros(corner_x.size(), device=self.__device)
+        ones = torch.ones(corner_x.size(), device=self.__device)
 
         # TODO: Discuss aggregation function.
         eq1_loss = abs(corner_x - corner_y*s1_t*s2_t - c2_h*s1_t - c1_h) - d2_h*s1_t - d1_h
