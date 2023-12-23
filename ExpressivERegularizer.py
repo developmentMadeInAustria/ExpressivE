@@ -11,6 +11,8 @@ from typing import Optional, Mapping, Any
 import re
 import os
 
+from torch import Tensor
+
 from Utils import preprocess_relations
 
 
@@ -277,7 +279,7 @@ class ExpressivERegularizer(Regularizer):
 
         return corner1_loss + corner2_loss + corner3_loss + corner4_loss
 
-    def general_composition_corner_loss(self, corner_x, corner_y, rel_1, rel_2) -> torch.FloatTensor:
+    def general_composition_corner_loss(self, corner_x, corner_y, rel_1, rel_2) -> Tensor:
         d1_h, d1_t, c1_h, c1_t, s1_h, s1_t = rel_1
         d2_h, d2_t, c2_h, c2_t, s2_h, s2_t = rel_2
 
@@ -304,7 +306,7 @@ class ExpressivERegularizer(Regularizer):
         eq6_loss = torch.mean(torch.maximum(zero_loss, eq6_loss))
 
         max_loss = max(eq1_loss, eq2_loss, eq3_loss, eq4_loss, eq5_loss, eq6_loss)
-        return torch.FloatTensor(max_loss)
+        return max_loss
 
 
 if __name__ == '__main__':
