@@ -193,7 +193,7 @@ class ExpressivERegularizer(Regularizer):
         body_weights = torch.index_select(weights, 0, body_indices)
         flipped_weights = self.__flip_weights(body_weights)
         chain_order_access = [[chain_order[0]] * body_weights.size()[1], [chain_order[1]] * body_weights.size()[1]]
-        loss_body_weights = torch.where(torch.tensor(chain_order_access), body_weights, flipped_weights)
+        loss_body_weights = torch.where(torch.tensor(chain_order_access, device=self.__device), body_weights, flipped_weights)
 
         head_weights = weights[head_id, :]
         head_weights = torch.reshape(head_weights, (1, -1))
