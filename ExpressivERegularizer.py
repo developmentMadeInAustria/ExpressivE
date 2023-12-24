@@ -58,8 +58,10 @@ class ExpressivERegularizer(Regularizer):
         self.__tanh_map = tanh_map
         self.__min_denom = min_denom
 
-        if 'CUDA_VISIBLE_DEVICES' in os.environ:
-            self.__device = torch.device('cuda:' + os.environ['CUDA_VISIBLE_DEVICES'])
+        if torch.cuda.is_available():
+            # pykeen is optimized for single gpu usage
+            # after setting CUDA_VISIBLE_DEVICES to e.g. 1, gpu 1 can only be accessed via cuda:0
+            self.__device = torch.device('cuda:0')
         else:
             self.__device = torch.device('cpu')
 
