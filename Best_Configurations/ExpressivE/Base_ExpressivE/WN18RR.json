@@ -28,7 +28,8 @@
     },
     "rules": "../Rules/WN18RR-Max5-Run1/WN18RR-1000",
     "rules_max_body_atoms": 2,
-    "rule_min_confidence": 0.1
+    "rule_min_confidence": 0.3,
+    "alpha": 0.1
   },
   "training_loop": "SLCWATrainingLoop",
   "negative_sampler": "BasicNegativeSampler",

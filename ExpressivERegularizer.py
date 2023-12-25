@@ -19,6 +19,7 @@ from Utils import preprocess_relations
 class ExpressivERegularizer(Regularizer):
 
     __alpha: float
+    __batch_size: int
     __apply_rule_confidence: bool
     __tanh_map: bool
     __min_denom: float
@@ -36,6 +37,7 @@ class ExpressivERegularizer(Regularizer):
             rules_max_body_atoms: int = 2,
             rule_min_confidence: float = 0.1,
             alpha: float = 1,
+            batch_size: int = None,
             apply_rule_confidence = False,
             tanh_map: bool = True,
             min_denom: float = 0.5,
@@ -54,6 +56,7 @@ class ExpressivERegularizer(Regularizer):
             raise ValueError("Error: alpha must be greater than zero!")
         self.__alpha = alpha
 
+        self.__batch_size = batch_size
         self.__apply_rule_confidence = apply_rule_confidence
         self.__tanh_map = tanh_map
         self.__min_denom = min_denom
@@ -96,14 +99,19 @@ class ExpressivERegularizer(Regularizer):
         self.__rules = rule_df
 
     def forward(self, x: torch.FloatTensor) -> torch.FloatTensor:
-        # apply() + sum() throws error
-        # "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
-
         # TODO: If lots of rules, split dataframe and parallelize
-        # TODO: Batch rules?
         # TODO: Visualize rules loss in tensorboard
+
+        if self.__batch_size is None:
+            rules = self.__rules
+        else:
+            rules = self.__rules.sample(self.__batch_size)
+
         rules_loss = None
-        for idx, row in self.__rules.iterrows():
+        for idx, row in rules.iterrows():
+            # use iterrows() as apply() + sum() throws error:
+            # "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
+
             rule_multiplier = row['confidence'] if self.__apply_rule_confidence else 1.0
             rule_loss = rule_multiplier * self.__compute_loss(row, x)
 
