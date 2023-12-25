@@ -100,6 +100,7 @@ class ExpressivERegularizer(Regularizer):
         # "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
 
         # TODO: If lots of rules, split dataframe and parallelize
+        # TODO: Batch rules?
         # TODO: Visualize rules loss in tensorboard
         rules_loss = None
         for idx, row in self.__rules.iterrows():
@@ -177,7 +178,8 @@ class ExpressivERegularizer(Regularizer):
             # hierarchy: r(x,y) -> s(x,y) = r(x,y) and i(y,y) -> s(x,y)
             body_weights = weights[body_ids[0], :]
             embedding_dim = int(len(body_weights) / 6)
-            self_loop = torch.cat((torch.zeros(embedding_dim*4), torch.ones(embedding_dim*2)))
+            self_loop = torch.cat((torch.zeros(embedding_dim*4, device=self.__device),
+                                   torch.ones(embedding_dim*2, device=self.__device)))
             head_weights = weights[head_id, :]
             rule_weights = torch.stack((body_weights, self_loop, head_weights))
             return self.general_composition_loss(rule_weights)

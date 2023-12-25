@@ -20,6 +20,7 @@
   "optimizer_kwargs": {
     "lr": 1e-04
   },
+  "regularizer": "ExpressivERegularizer",
   "regularizer_kwargs":  {
     "dataset": "FB15k237",
     "dataset_kwargs": {
