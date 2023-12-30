@@ -6,10 +6,12 @@ import torch
 from pykeen.regularizers import Regularizer
 from pykeen.datasets import get_dataset
 from pykeen.triples import TriplesFactory
+from pykeen.trackers import ResultTracker, tracker_resolver
+
+from class_resolver import HintOrType, OptionalKwargs
 
 from typing import Optional, Mapping, Any
 import re
-import os
 
 from torch import Tensor
 
@@ -23,6 +25,10 @@ class ExpressivERegularizer(Regularizer):
     __apply_rule_confidence: bool
     __tanh_map: bool
     __min_denom: float
+
+    __tracked_rules: [int]
+    __iteration: int = 0
+    __result_tracker: ResultTracker
 
     __device: torch.device
 
@@ -41,8 +47,13 @@ class ExpressivERegularizer(Regularizer):
             apply_rule_confidence = False,
             tanh_map: bool = True,
             min_denom: float = 0.5,
+            tracked_rules=None,
+            result_tracker: HintOrType[ResultTracker] = None,
+            result_tracker_kwargs: OptionalKwargs = None,
             **kwargs
     ) -> None:
+        if tracked_rules is None:
+            tracked_rules = list()
         kwargs['apply_only_once'] = True
         super().__init__(**kwargs)
 
@@ -60,6 +71,11 @@ class ExpressivERegularizer(Regularizer):
         self.__apply_rule_confidence = apply_rule_confidence
         self.__tanh_map = tanh_map
         self.__min_denom = min_denom
+
+        self.__tracked_rules = tracked_rules
+        if self.__tracked_rules is None:
+            self.__tracked_rules = []
+        self.__result_tracker = tracker_resolver.make(query=result_tracker, pos_kwargs=result_tracker_kwargs)
 
         if torch.cuda.is_available():
             # pykeen is optimized for single gpu usage
@@ -100,7 +116,7 @@ class ExpressivERegularizer(Regularizer):
 
     def forward(self, x: torch.FloatTensor) -> torch.FloatTensor:
         # TODO: If lots of rules, split dataframe and parallelize
-        # TODO: Visualize rules loss in tensorboard
+        self.__iteration += 1 # TODO: Sync with epochs
 
         if self.__batch_size is None:
             rules = self.__rules
@@ -120,7 +136,10 @@ class ExpressivERegularizer(Regularizer):
             else:
                 rules_loss += rule_loss
 
-        return self.__alpha * rules_loss
+            if idx in self.__tracked_rules:
+                self.__result_tracker.log_metrics({"rule_{}_loss".format(idx): rule_loss}, step=self.__iteration)
+
+        self.__result_tracker.log_metrics({"rules_loss": rules_loss}, step=self.__iteration)
 
     def __no_const_body(self, atoms: [str]) -> bool:
         arguments = map(self.__extract_arguments, atoms)

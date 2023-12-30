@@ -137,6 +137,7 @@ def main(**kwargs):
     if train:
         for seed in seeds:
             sub_dir_seed = '/' + sub_dir + '_seed_' + str(seed)
+            sub_dir_reg_loss = sub_dir_seed + '/' + 'reg-loss'
 
             pipeline(
                 model=model,
@@ -150,7 +151,9 @@ def main(**kwargs):
                                  adversarial_temperature=config['loss_kwargs']['adversarial_temperature'],
                                  margin=config['loss_kwargs']['margin']),
                 regularizer=regularizer,
-                regularizer_kwargs=regularizer_kwargs,
+                regularizer_kwargs=regularizer_kwargs |
+                                   dict(result_tracker='tensorboard',
+                                        result_tracker_kwargs=dict(experiment_path=experiment_dir + '/logs' + sub_dir_reg_loss)),
                 result_tracker='tensorboard',
                 result_tracker_kwargs=dict(
                     experiment_path=experiment_dir + '/logs' + sub_dir_seed,
