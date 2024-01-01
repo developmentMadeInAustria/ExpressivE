@@ -291,17 +291,24 @@ class ExpressivERegularizer(Regularizer):
         d3_h, d3_t, c3_h, c3_t, s3_h, s3_t = rel_3
 
         # Calculate four corner points of head relation
-        corner1_x = ((c3_t-c3_h) + (d3_t-d3_h)) / (s3_t-s3_h) # top right
+
+        # x = c3_h +/- d3_h + s3_t * y
+        # y = c3_t +/- d3_t + s3_h * x
+
+        # Corners = intersections of four equations
+        # x = c3_h +/- d3_h + s3_t * c3_t +/- s3_t * d3_t / (1 - s3_t * s3_h)
+
+        corner1_x = c3_h + d3_h + s3_t * c3_t + s3_t * d3_t / (1 - s3_t * s3_h)  # +,+
         corner1_y = c3_t + d3_t + s3_h * corner1_x
 
-        corner2_x = ((c3_t-c3_h) + (-d3_t-d3_h)) / (s3_t-s3_h) # bottom right
+        corner2_x = c3_h + d3_h + s3_t * c3_t - s3_t * d3_t / (1 - s3_t * s3_h)  # +,-
         corner2_y = c3_t - d3_t + s3_h * corner2_x
 
-        corner3_x = ((c3_t - c3_h) + (-d3_t + d3_h)) / (s3_t - s3_h)  # bottom left
-        corner3_y = c3_t - d3_t + s3_h * corner3_x
+        corner3_x = c3_h - d3_h + s3_t * c3_t + s3_t * d3_t / (1 - s3_t * s3_h)  # -,+
+        corner3_y = c3_t + d3_t + s3_h * corner3_x
 
-        corner4_x = ((c3_t - c3_h) + (d3_t + d3_h)) / (s3_t - s3_h)  # top left
-        corner4_y = c3_t + d3_t + s3_h * corner4_x
+        corner4_x = c3_h - d3_h + s3_t * c3_t - s3_t * d3_t / (1 - s3_t * s3_h)  # -,-
+        corner4_y = c3_t - d3_t + s3_h * corner4_x
 
         # Check each inequality with each corner point
         corner1_loss = self.general_composition_corner_loss(corner1_x, corner1_y, rel_1, rel_2)
