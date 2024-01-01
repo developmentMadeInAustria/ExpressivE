@@ -140,6 +140,7 @@ class ExpressivERegularizer(Regularizer):
                 self.__result_tracker.log_metrics({"rule_{}_loss".format(idx): rule_loss}, step=self.__iteration)
 
         self.__result_tracker.log_metrics({"rules_loss": rules_loss}, step=self.__iteration)
+        return self.__alpha * rules_loss
 
     def __no_const_body(self, atoms: [str]) -> bool:
         arguments = map(self.__extract_arguments, atoms)
