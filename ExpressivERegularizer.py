@@ -1,3 +1,4 @@
+import math
 
 import pandas as pd
 
@@ -21,6 +22,8 @@ from Utils import preprocess_relations
 class ExpressivERegularizer(Regularizer):
 
     __alpha: float
+    __decay: str
+    __decay_rate: float
     __batch_size: int
     __apply_rule_confidence: bool
     __tanh_map: bool
@@ -43,6 +46,8 @@ class ExpressivERegularizer(Regularizer):
             rules_max_body_atoms: int = 2,
             rule_min_confidence: float = 0.1,
             alpha: float = 1,
+            decay: str = "exponential",
+            decay_rate: float = 5e-04,
             batch_size: int = None,
             apply_rule_confidence = False,
             tanh_map: bool = True,
@@ -66,6 +71,11 @@ class ExpressivERegularizer(Regularizer):
         if alpha < 0:
             raise ValueError("Error: alpha must be greater than zero!")
         self.__alpha = alpha
+
+        if decay != "exponential" and decay != "inverse":
+            raise ValueError("Error: only exponential and inverse decay implemented!")
+        self.__decay = decay
+        self.__decay_rate = decay_rate
 
         self.__batch_size = batch_size
         self.__apply_rule_confidence = apply_rule_confidence
@@ -139,8 +149,9 @@ class ExpressivERegularizer(Regularizer):
             if idx in self.__tracked_rules:
                 self.__result_tracker.log_metrics({"rule_{}_loss".format(idx): rule_loss}, step=self.__iteration)
 
-        self.__result_tracker.log_metrics({"rules_loss": rules_loss}, step=self.__iteration)
-        return self.__alpha * rules_loss
+        alpha = self.__decayed_alpha()
+        self.__result_tracker.log_metrics({"rules_loss": rules_loss, "alpha": alpha}, step=self.__iteration)
+        return alpha * rules_loss
 
     def __no_const_body(self, atoms: [str]) -> bool:
         arguments = map(self.__extract_arguments, atoms)
@@ -210,7 +221,7 @@ class ExpressivERegularizer(Regularizer):
                                    torch.ones(embedding_dim*2, device=self.__device)))
             head_weights = weights[head_id, :]
             rule_weights = torch.stack((body_weights, self_loop, head_weights))
-            return self.general_composition_loss(rule_weights)
+            return self.__general_composition_loss(rule_weights)
         else:
             # inversion: r(x,y) -> r(y,x) = r(x,y) and i(y,y) -> r(y,x)
             print("Loss for inversion rules not implemented yet")
@@ -233,7 +244,7 @@ class ExpressivERegularizer(Regularizer):
         head_weights = torch.reshape(head_weights, (1, -1))
 
         rule_weights = torch.cat((loss_body_weights, head_weights), dim=0)
-        return self.general_composition_loss(rule_weights)
+        return self.__general_composition_loss(rule_weights)
 
     def __compute_chain_order(self, body_args, current_chain, prev_dangling_atom) -> [bool]:
         """
@@ -274,7 +285,7 @@ class ExpressivERegularizer(Regularizer):
         flipped = single_dim_flipped.view(num_weights, -1)
         return flipped
 
-    def general_composition_loss(self, weights, self_loop=False) -> torch.FloatTensor:
+    def __general_composition_loss(self, weights, self_loop=False) -> torch.FloatTensor:
         """
         Computes the general composition loss (for two body atoms)
 
@@ -311,14 +322,14 @@ class ExpressivERegularizer(Regularizer):
         corner4_y = c3_t - d3_t + s3_h * corner4_x
 
         # Check each inequality with each corner point
-        corner1_loss = self.general_composition_corner_loss(corner1_x, corner1_y, rel_1, rel_2)
-        corner2_loss = self.general_composition_corner_loss(corner2_x, corner2_y, rel_1, rel_2)
-        corner3_loss = self.general_composition_corner_loss(corner3_x, corner3_y, rel_1, rel_2)
-        corner4_loss = self.general_composition_corner_loss(corner4_x, corner4_y, rel_1, rel_2)
+        corner1_loss = self.__general_composition_corner_loss(corner1_x, corner1_y, rel_1, rel_2)
+        corner2_loss = self.__general_composition_corner_loss(corner2_x, corner2_y, rel_1, rel_2)
+        corner3_loss = self.__general_composition_corner_loss(corner3_x, corner3_y, rel_1, rel_2)
+        corner4_loss = self.__general_composition_corner_loss(corner4_x, corner4_y, rel_1, rel_2)
 
         return corner1_loss + corner2_loss + corner3_loss + corner4_loss
 
-    def general_composition_corner_loss(self, corner_x, corner_y, rel_1, rel_2) -> Tensor:
+    def __general_composition_corner_loss(self, corner_x, corner_y, rel_1, rel_2) -> Tensor:
         d1_h, d1_t, c1_h, c1_t, s1_h, s1_t = rel_1
         d2_h, d2_t, c2_h, c2_t, s2_h, s2_t = rel_2
 
@@ -346,6 +357,15 @@ class ExpressivERegularizer(Regularizer):
 
         max_loss = max(eq1_loss, eq2_loss, eq3_loss, eq4_loss, eq5_loss, eq6_loss)
         return max_loss
+
+    def __decayed_alpha(self):
+        # TODO: Either move to separate class or use torch classes
+        if self.__decay == "exponential":
+            return self.__alpha * math.exp(-self.__decay_rate * self.__iteration)
+        elif self.__decay == "inverse":
+            return self.__alpha / (1 + self.__decay_rate * self.__iteration)
+
+        return self.__alpha
 
 
 if __name__ == '__main__':
