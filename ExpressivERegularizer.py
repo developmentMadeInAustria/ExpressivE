@@ -22,6 +22,7 @@ from Utils import preprocess_relations
 class ExpressivERegularizer(Regularizer):
 
     __alpha: float
+    __min_alpha: float
     __decay: str
     __decay_rate: float
     __batch_size: int
@@ -46,6 +47,7 @@ class ExpressivERegularizer(Regularizer):
             rules_max_body_atoms: int = 2,
             rule_min_confidence: float = 0.1,
             alpha: float = 1,
+            min_alpha: float = 1,
             decay: str = "exponential",
             decay_rate: float = 5e-04,
             batch_size: int = None,
@@ -68,9 +70,10 @@ class ExpressivERegularizer(Regularizer):
         if rule_min_confidence > 1:
             raise ValueError("Error: minimum rule confidence can't be greater than one!")
 
-        if alpha < 0:
+        if alpha < 0 or min_alpha < 0:
             raise ValueError("Error: alpha must be greater than zero!")
         self.__alpha = alpha
+        self.__min_alpha = min_alpha
 
         if decay != "exponential" and decay != "inverse":
             raise ValueError("Error: only exponential and inverse decay implemented!")
@@ -360,12 +363,14 @@ class ExpressivERegularizer(Regularizer):
 
     def __decayed_alpha(self):
         # TODO: Either move to separate class or use torch classes
-        if self.__decay == "exponential":
-            return self.__alpha * math.exp(-self.__decay_rate * self.__iteration)
-        elif self.__decay == "inverse":
-            return self.__alpha / (1 + self.__decay_rate * self.__iteration)
+        alpha = self.__alpha
 
-        return self.__alpha
+        if self.__decay == "exponential":
+            alpha = self.__alpha * math.exp(-self.__decay_rate * self.__iteration)
+        elif self.__decay == "inverse":
+            alpha = self.__alpha / (1 + self.__decay_rate * self.__iteration)
+
+        return max(alpha, self.__min_alpha)
 
 
 if __name__ == '__main__':
