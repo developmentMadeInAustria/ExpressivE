@@ -77,8 +77,8 @@ class ExpressivERegularizer(Regularizer):
         self.__alpha = alpha
         self.__min_alpha = min_alpha
 
-        if decay != "exponential" and decay != "inverse":
-            raise ValueError("Error: only exponential and inverse decay implemented!")
+        if decay != "none" and decay != "exponential" and decay != "inverse":
+            raise ValueError("Error: only exponential, inverse and no decay are implemented!")
         self.__decay = decay
         self.__decay_rate = decay_rate
 
