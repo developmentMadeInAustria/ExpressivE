@@ -48,7 +48,7 @@ class ExpressivERegularizer(Regularizer):
             rules_max_body_atoms: int = 2,
             rule_min_confidence: float = 0.1,
             alpha: float = 1,
-            min_alpha: float = 1,
+            min_alpha: float = 0,
             decay: str = "exponential",
             decay_rate: float = 5e-04,
             batch_size: int = None,
