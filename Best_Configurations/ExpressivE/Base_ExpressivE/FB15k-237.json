@@ -30,7 +30,11 @@
     "rules_max_body_atoms": 2,
     "rule_min_confidence": 0.3,
     "alpha": 0.1,
-    "batch_size": 32
+    "min_alpha": 0.005,
+    "decay": "exponential",
+    "decay_rate": 6e-05,
+    "batch_size": 32,
+    "track_all_rules": true
   },
   "training_loop": "SLCWATrainingLoop",
   "negative_sampler": "BasicNegativeSampler",

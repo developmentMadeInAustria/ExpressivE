@@ -31,6 +31,7 @@ class ExpressivERegularizer(Regularizer):
     __min_denom: float
 
     __tracked_rules: [int]
+    __track_all_rules: bool
     __iteration: int = 0
     __result_tracker: ResultTracker
 
@@ -55,6 +56,7 @@ class ExpressivERegularizer(Regularizer):
             tanh_map: bool = True,
             min_denom: float = 0.5,
             tracked_rules=None,
+            track_all_rules: bool = False,
             result_tracker: HintOrType[ResultTracker] = None,
             result_tracker_kwargs: OptionalKwargs = None,
             **kwargs
@@ -88,6 +90,7 @@ class ExpressivERegularizer(Regularizer):
         self.__tracked_rules = tracked_rules
         if self.__tracked_rules is None:
             self.__tracked_rules = []
+        self.__track_all_rules = track_all_rules
         self.__result_tracker = tracker_resolver.make(query=result_tracker, pos_kwargs=result_tracker_kwargs)
 
         if torch.cuda.is_available():
@@ -149,7 +152,7 @@ class ExpressivERegularizer(Regularizer):
             else:
                 rules_loss += rule_loss
 
-            if idx in self.__tracked_rules:
+            if self.__track_all_rules or idx in self.__tracked_rules:
                 self.__result_tracker.log_metrics({"rule_{}_loss".format(idx): rule_loss}, step=self.__iteration)
 
         alpha = self.__decayed_alpha()
