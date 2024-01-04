@@ -26,6 +26,7 @@ class ExpressivERegularizer(Regularizer):
     __decay: str
     __decay_rate: float
     __batch_size: int
+    __sampling_strategy: str
     __apply_rule_confidence: bool
     __tanh_map: bool
     __min_denom: float
@@ -52,6 +53,7 @@ class ExpressivERegularizer(Regularizer):
             decay: str = "exponential",
             decay_rate: float = 5e-04,
             batch_size: int = None,
+            sampling_strategy: str = "uniform",
             apply_rule_confidence = False,
             tanh_map: bool = True,
             min_denom: float = 0.5,
@@ -82,7 +84,14 @@ class ExpressivERegularizer(Regularizer):
         self.__decay = decay
         self.__decay_rate = decay_rate
 
+        if batch_size is not None and batch_size < 0:
+            raise ValueError("Error: batch size must not be smaller than 0")
         self.__batch_size = batch_size
+
+        if sampling_strategy != "uniform" and sampling_strategy != "weighted":
+            raise ValueError("Error: only uniform and weighted sampling strategy implemented!")
+        self.__sampling_strategy = sampling_strategy
+
         self.__apply_rule_confidence = apply_rule_confidence
         self.__tanh_map = tanh_map
         self.__min_denom = min_denom
@@ -137,7 +146,11 @@ class ExpressivERegularizer(Regularizer):
         if self.__batch_size is None:
             rules = self.__rules
         else:
-            rules = self.__rules.sample(self.__batch_size)
+            if self.__sampling_strategy == "uniform":
+                rules = self.__rules.sample(self.__batch_size)
+            elif self.__sampling_strategy == "weighted":
+                # TODO: Sample separately rules with constants and rules without constants (confidence not comparable)
+                rules = self.__rules.sample(self.__batch_size, weights="confidence")
 
         rules_loss = None
         for idx, row in rules.iterrows():
