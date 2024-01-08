@@ -142,6 +142,7 @@ class ExpressivERegularizer(Regularizer):
     def forward(self, x: torch.FloatTensor) -> torch.FloatTensor:
         # TODO: If lots of rules, split dataframe and parallelize
         self.__iteration += 1 # TODO: Sync with epochs
+        self.__log_weights(x)
 
         if self.__batch_size is None:
             rules = self.__rules
@@ -356,6 +357,7 @@ class ExpressivERegularizer(Regularizer):
         ones = torch.ones(corner_x.size(), device=self.__device)
 
         # TODO: Discuss aggregation function.
+        # E.g.: Use dimension-wise maximum or sum
         eq1_loss = abs(corner_x - corner_y*s1_t*s2_t - c2_h*s1_t - c1_h) - d2_h*s1_t - d1_h
         eq1_loss = torch.mean(torch.maximum(zero_loss, eq1_loss))
 
@@ -387,6 +389,19 @@ class ExpressivERegularizer(Regularizer):
             alpha = self.__alpha / (1 + self.__decay_rate * self.__iteration)
 
         return max(alpha, self.__min_alpha)
+
+    # TODO: Move to other file
+    def __log_weights(self, weights):
+        for idx, rule in enumerate(weights):
+            d_h, d_t, c_h, c_t, s_h, s_t = preprocess_relations(rule,
+                                                                tanh_map=self.__tanh_map,
+                                                                min_denom=self.__min_denom)
+
+            self.__result_tracker.log_metrics({
+                "rel_{}_dh".format(idx): torch.mean(d_h), "rel_{}_dt".format(idx): torch.mean(d_t),
+                "rel_{}_ch".format(idx): torch.mean(c_h), "rel_{}_ch".format(idx): torch.mean(c_t),
+                "rel_{}_sh".format(idx): torch.mean(s_h), "rel_{}_st".format(idx): torch.mean(s_t)
+            }, step=self.__iteration)
 
 
 if __name__ == '__main__':
