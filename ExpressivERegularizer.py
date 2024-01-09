@@ -21,6 +21,7 @@ from Utils import preprocess_relations
 
 class ExpressivERegularizer(Regularizer):
 
+    __loss_aggregation: str
     __alpha: float
     __min_alpha: float
     __decay: str
@@ -49,6 +50,7 @@ class ExpressivERegularizer(Regularizer):
             rules: str,
             rules_max_body_atoms: int = 2,
             rule_min_confidence: float = 0.1,
+            loss_aggregation: str = "sum",
             alpha: float = 1,
             min_alpha: float = 0,
             decay: str = "exponential",
@@ -75,6 +77,10 @@ class ExpressivERegularizer(Regularizer):
 
         if rule_min_confidence > 1:
             raise ValueError("Error: minimum rule confidence can't be greater than one!")
+
+        if loss_aggregation != "sum" and loss_aggregation != "max":
+            raise ValueError("Error: loss aggregation must be either sum or max!")
+        self.__loss_aggregation = loss_aggregation
 
         if alpha < 0 or min_alpha < 0:
             raise ValueError("Error: alpha must be greater than zero!")
@@ -371,6 +377,7 @@ class ExpressivERegularizer(Regularizer):
         eq3_loss = abs(corner_y - corner_x*s1_h*s2_h - c1_t*s2_h - c2_t) - d1_t*s2_h - d2_t
         eq3_loss = torch.mean(torch.maximum(zero_loss, eq3_loss))
 
+        # TODO: Cap outliers
         eq4_loss = abs(corner_y + (c1_h - corner_x)*s2_h/s1_t - c2_t) - d1_h*s2_h/s1_t - d2_t
         eq4_loss = torch.mean(torch.maximum(zero_loss, eq4_loss))
 
@@ -380,8 +387,13 @@ class ExpressivERegularizer(Regularizer):
         eq6_loss = abs(corner_y*(ones - s2_h*s2_t) - c2_h*s2_h - c2_t) - d2_h*s2_h - d2_t
         eq6_loss = torch.mean(torch.maximum(zero_loss, eq6_loss))
 
-        max_loss = max(eq1_loss, eq2_loss, eq3_loss, eq4_loss, eq5_loss, eq6_loss)
-        return max_loss
+        if self.__loss_aggregation == "sum":
+            return eq1_loss + eq2_loss + eq3_loss + eq4_loss + eq5_loss + eq6_loss
+        elif self.__loss_aggregation == "max":
+            return max(eq1_loss, eq2_loss, eq3_loss, eq4_loss, eq5_loss, eq6_loss)
+
+        # TODO: add assertion should never happen
+        return 0
 
     def __decayed_alpha(self):
         # TODO: Either move to separate class or use torch classes
