@@ -22,6 +22,7 @@ from Utils import preprocess_relations
 class ExpressivERegularizer(Regularizer):
 
     __loss_aggregation: str
+    __loss_limit: float
     __alpha: float
     __min_alpha: float
     __decay: str
@@ -51,6 +52,7 @@ class ExpressivERegularizer(Regularizer):
             rules_max_body_atoms: int = 2,
             rule_min_confidence: float = 0.1,
             loss_aggregation: str = "sum",
+            loss_limit: float = 10.0,
             alpha: float = 1,
             min_alpha: float = 0,
             decay: str = "exponential",
@@ -81,6 +83,10 @@ class ExpressivERegularizer(Regularizer):
         if loss_aggregation != "sum" and loss_aggregation != "max":
             raise ValueError("Error: loss aggregation must be either sum or max!")
         self.__loss_aggregation = loss_aggregation
+
+        if loss_limit <= 0:
+            raise ValueError("Error: loss limit must be greater than 0!")
+        self.__loss_limit = loss_limit
 
         if alpha < 0 or min_alpha < 0:
             raise ValueError("Error: alpha must be greater than zero!")
@@ -363,30 +369,30 @@ class ExpressivERegularizer(Regularizer):
         d1_h, d1_t, c1_h, c1_t, s1_h, s1_t = rel_1
         d2_h, d2_t, c2_h, c2_t, s2_h, s2_t = rel_2
 
-        zero_loss = torch.zeros(corner_x.size(), device=self.__device)
         ones = torch.ones(corner_x.size(), device=self.__device)
 
         # TODO: Discuss aggregation function.
         # E.g.: Use dimension-wise maximum or sum
         eq1_loss = abs(corner_x - corner_y*s1_t*s2_t - c2_h*s1_t - c1_h) - d2_h*s1_t - d1_h
-        eq1_loss = torch.mean(torch.maximum(zero_loss, eq1_loss))
+        eq1_loss = torch.mean(torch.clamp(eq1_loss, 0, self.__loss_limit))
 
         eq2_loss = abs(corner_y*s2_t + c2_h - corner_x*s1_h - c1_t) - d1_t - d2_h
-        eq2_loss = torch.mean(torch.maximum(zero_loss, eq2_loss))
+        eq2_loss = torch.mean(torch.clamp(eq2_loss, 0, self.__loss_limit))
 
         eq3_loss = abs(corner_y - corner_x*s1_h*s2_h - c1_t*s2_h - c2_t) - d1_t*s2_h - d2_t
-        eq3_loss = torch.mean(torch.maximum(zero_loss, eq3_loss))
+        eq3_loss = torch.mean(torch.clamp(eq3_loss, 0, self.__loss_limit))
 
-        # TODO: Cap outliers
+        # Note: s2_h/s1_t leads to explosion of loss term for some dimensions -> clamp
         eq4_loss = abs(corner_y + (c1_h - corner_x)*s2_h/s1_t - c2_t) - d1_h*s2_h/s1_t - d2_t
-        eq4_loss = torch.mean(torch.maximum(zero_loss, eq4_loss))
+        eq4_loss = torch.mean(torch.clamp(eq4_loss, 0, self.__loss_limit))
 
         eq5_loss = abs(corner_x*(ones - s1_h*s1_t) - c1_t*s1_t - c1_h) - d1_t*s1_t - d1_h
-        eq5_loss = torch.mean(torch.maximum(zero_loss, eq5_loss))
+        eq5_loss = torch.mean(torch.clamp(eq5_loss, 0, self.__loss_limit))
 
         eq6_loss = abs(corner_y*(ones - s2_h*s2_t) - c2_h*s2_h - c2_t) - d2_h*s2_h - d2_t
-        eq6_loss = torch.mean(torch.maximum(zero_loss, eq6_loss))
+        eq6_loss = torch.mean(torch.clamp(eq6_loss, 0, self.__loss_limit))
 
+        # Note: Prefer sum over max as eq4 tends to largest all the time (s2_h/s1_t)
         if self.__loss_aggregation == "sum":
             return eq1_loss + eq2_loss + eq3_loss + eq4_loss + eq5_loss + eq6_loss
         elif self.__loss_aggregation == "max":
