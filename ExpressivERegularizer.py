@@ -33,6 +33,7 @@ class ExpressivERegularizer(Regularizer):
 
     __tracked_rules: [int]
     __track_all_rules: bool
+    __track_relation_params: bool
     __iteration: int = 0
     __result_tracker: ResultTracker
 
@@ -59,6 +60,7 @@ class ExpressivERegularizer(Regularizer):
             min_denom: float = 0.5,
             tracked_rules=None,
             track_all_rules: bool = False,
+            track_relation_params: bool = False,
             result_tracker: HintOrType[ResultTracker] = None,
             result_tracker_kwargs: OptionalKwargs = None,
             **kwargs
@@ -100,6 +102,7 @@ class ExpressivERegularizer(Regularizer):
         if self.__tracked_rules is None:
             self.__tracked_rules = []
         self.__track_all_rules = track_all_rules
+        self.__track_relation_params = track_relation_params
         self.__result_tracker = tracker_resolver.make(query=result_tracker, pos_kwargs=result_tracker_kwargs)
 
         if torch.cuda.is_available():
@@ -142,7 +145,8 @@ class ExpressivERegularizer(Regularizer):
     def forward(self, x: torch.FloatTensor) -> torch.FloatTensor:
         # TODO: If lots of rules, split dataframe and parallelize
         self.__iteration += 1 # TODO: Sync with epochs
-        self.__log_weights(x)
+        if self.__track_relation_params:
+            self.__log_weights(x)
 
         if self.__batch_size is None:
             rules = self.__rules
@@ -399,7 +403,7 @@ class ExpressivERegularizer(Regularizer):
 
             self.__result_tracker.log_metrics({
                 "rel_{}_dh".format(idx): torch.mean(d_h), "rel_{}_dt".format(idx): torch.mean(d_t),
-                "rel_{}_ch".format(idx): torch.mean(c_h), "rel_{}_ch".format(idx): torch.mean(c_t),
+                "rel_{}_ch".format(idx): torch.mean(c_h), "rel_{}_ct".format(idx): torch.mean(c_t),
                 "rel_{}_sh".format(idx): torch.mean(s_h), "rel_{}_st".format(idx): torch.mean(s_t)
             }, step=self.__iteration)
 
