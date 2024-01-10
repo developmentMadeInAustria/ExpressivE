@@ -252,16 +252,18 @@ class ExpressivERegularizer(Regularizer):
         if body_args[0] == 'X,Y':
             # hierarchy: r(x,y) -> s(x,y) = r(x,y) and i(y,y) -> s(x,y)
             body_weights = weights[body_ids[0], :]
-            embedding_dim = int(len(body_weights) / 6)
-            self_loop = torch.cat((torch.zeros(embedding_dim*4, device=self.__device),
-                                   torch.ones(embedding_dim*2, device=self.__device)))
-            head_weights = weights[head_id, :]
-            rule_weights = torch.stack((body_weights, self_loop, head_weights))
-            return self.__general_composition_loss(rule_weights)
         else:
-            # inversion: r(x,y) -> r(y,x) = r(x,y) and i(y,y) -> r(y,x)
-            print("Loss for inversion rules not implemented yet")
-            return 0
+            # inversion: r(x,y) -> r(y,x) = r(x,y)
+            # flip body relation weights
+            body_weights = self.__flip_weights(weights[body_ids[0], :])
+            body_weights = torch.flatten(body_weights)
+
+        embedding_dim = int(len(body_weights) / 6)
+        self_loop = torch.cat((torch.zeros(embedding_dim * 4, device=self.__device),
+                               torch.ones(embedding_dim * 2, device=self.__device)))
+        head_weights = weights[head_id, :]
+        rule_weights = torch.stack((body_weights, self_loop, head_weights))
+        return self.__general_composition_loss(rule_weights)
 
     def __compute_loss_two_atoms(self, body_args, head_args, body_ids, head_id, weights) -> torch.FloatTensor:
         if head_args != 'X,Y':
@@ -305,8 +307,12 @@ class ExpressivERegularizer(Regularizer):
                 return self.__compute_chain_order(body_args[1:], current_chain + [False], body_args[0][2])
 
     def __flip_weights(self, weights: torch.Tensor) -> torch.Tensor:
-        num_weights = weights.size()[0]
-        embedding_dim = int(weights.size()[1] / 6)
+        if len(weights.size()) == 1:
+            num_weights = 1
+            embedding_dim = int(weights.size()[0] / 6)
+        else:
+            num_weights = weights.size()[0]
+            embedding_dim = int(weights.size()[1] / 6)
 
         idx_list = []
         counter = 0
@@ -383,6 +389,7 @@ class ExpressivERegularizer(Regularizer):
         eq3_loss = torch.mean(torch.clamp(eq3_loss, 0, self.__loss_limit))
 
         # Note: s2_h/s1_t leads to explosion of loss term for some dimensions -> clamp
+        # Other options: equal slopes variant, skip completely, scale log
         eq4_loss = abs(corner_y + (c1_h - corner_x)*s2_h/s1_t - c2_t) - d1_h*s2_h/s1_t - d2_t
         eq4_loss = torch.mean(torch.clamp(eq4_loss, 0, self.__loss_limit))
 
