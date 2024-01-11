@@ -1,5 +1,3 @@
-import math
-
 import pandas as pd
 
 import torch
@@ -7,7 +5,7 @@ import torch
 from pykeen.regularizers import Regularizer
 from pykeen.datasets import get_dataset
 from pykeen.triples import TriplesFactory
-from pykeen.trackers import ResultTracker, tracker_resolver
+from pykeen.trackers import ResultTracker
 
 from class_resolver import HintOrType, OptionalKwargs
 
@@ -17,27 +15,24 @@ import re
 from torch import Tensor
 
 from Utils import preprocess_relations
+from Regularization.ExpressivELRScheduler import ExpressivELRScheduler
+from Regularization.ExpressivELogger import ExpressivELogger
 
 
 class ExpressivERegularizer(Regularizer):
 
     __loss_aggregation: str
     __loss_limit: float
-    __alpha: float
-    __min_alpha: float
-    __decay: str
-    __decay_rate: float
     __batch_size: int
     __sampling_strategy: str
     __apply_rule_confidence: bool
     __tanh_map: bool
     __min_denom: float
 
-    __tracked_rules: [int]
-    __track_all_rules: bool
-    __track_relation_params: bool
     __iteration: int = 0
-    __result_tracker: ResultTracker
+
+    __lr_scheduler: ExpressivELRScheduler
+    __logger: ExpressivELogger
 
     __device: torch.device
 
@@ -88,15 +83,7 @@ class ExpressivERegularizer(Regularizer):
             raise ValueError("Error: loss limit must be greater than 0!")
         self.__loss_limit = loss_limit
 
-        if alpha < 0 or min_alpha < 0:
-            raise ValueError("Error: alpha must be greater than zero!")
-        self.__alpha = alpha
-        self.__min_alpha = min_alpha
-
-        if decay != "none" and decay != "exponential" and decay != "inverse":
-            raise ValueError("Error: only exponential, inverse and no decay are implemented!")
-        self.__decay = decay
-        self.__decay_rate = decay_rate
+        self.__lr_scheduler = ExpressivELRScheduler(alpha, min_alpha, decay, decay_rate)
 
         if batch_size is not None and batch_size < 0:
             raise ValueError("Error: batch size must not be smaller than 0")
@@ -110,12 +97,7 @@ class ExpressivERegularizer(Regularizer):
         self.__tanh_map = tanh_map
         self.__min_denom = min_denom
 
-        self.__tracked_rules = tracked_rules
-        if self.__tracked_rules is None:
-            self.__tracked_rules = []
-        self.__track_all_rules = track_all_rules
-        self.__track_relation_params = track_relation_params
-        self.__result_tracker = tracker_resolver.make(query=result_tracker, pos_kwargs=result_tracker_kwargs)
+        self.__logger = ExpressivELogger(tanh_map, min_denom, tracked_rules, track_all_rules, track_relation_params, result_tracker, result_tracker_kwargs)
 
         if torch.cuda.is_available():
             # pykeen is optimized for single gpu usage
@@ -155,10 +137,11 @@ class ExpressivERegularizer(Regularizer):
         self.__rules = rule_df
 
     def forward(self, x: torch.FloatTensor) -> torch.FloatTensor:
-        # TODO: If lots of rules, split dataframe and parallelize
+        # Note: If lots of rules, split dataframe and parallelize. However, most likely upper limit (batch size) due to
+        # complex backtracking.
+
         self.__iteration += 1 # TODO: Sync with epochs
-        if self.__track_relation_params:
-            self.__log_weights(x)
+        self.__lr_scheduler.step()
 
         if self.__batch_size is None:
             rules = self.__rules
@@ -182,11 +165,14 @@ class ExpressivERegularizer(Regularizer):
             else:
                 rules_loss += rule_loss
 
-            if self.__track_all_rules or idx in self.__tracked_rules:
-                self.__result_tracker.log_metrics({"rule_{}_loss".format(idx): rule_loss}, step=self.__iteration)
+            self.__logger.log_rule(idx, rule_loss, self.__iteration)
 
-        alpha = self.__decayed_alpha()
-        self.__result_tracker.log_metrics({"rules_loss": rules_loss, "alpha": alpha}, step=self.__iteration)
+        alpha = self.__lr_scheduler.alpha()
+
+        self.__logger.log_weights(x, self.__iteration)
+        self.__logger.log_alpha(alpha, self.__iteration)
+        self.__logger.log_rules(rule_loss, self.__iteration)
+
         return alpha * rules_loss
 
     def __no_const_body(self, atoms: [str]) -> bool:
@@ -407,30 +393,6 @@ class ExpressivERegularizer(Regularizer):
 
         # TODO: add assertion should never happen
         return 0
-
-    def __decayed_alpha(self):
-        # TODO: Either move to separate class or use torch classes
-        alpha = self.__alpha
-
-        if self.__decay == "exponential":
-            alpha = self.__alpha * math.exp(-self.__decay_rate * self.__iteration)
-        elif self.__decay == "inverse":
-            alpha = self.__alpha / (1 + self.__decay_rate * self.__iteration)
-
-        return max(alpha, self.__min_alpha)
-
-    # TODO: Move to other file
-    def __log_weights(self, weights):
-        for idx, rule in enumerate(weights):
-            d_h, d_t, c_h, c_t, s_h, s_t = preprocess_relations(rule,
-                                                                tanh_map=self.__tanh_map,
-                                                                min_denom=self.__min_denom)
-
-            self.__result_tracker.log_metrics({
-                "rel_{}_dh".format(idx): torch.mean(d_h), "rel_{}_dt".format(idx): torch.mean(d_t),
-                "rel_{}_ch".format(idx): torch.mean(c_h), "rel_{}_ct".format(idx): torch.mean(c_t),
-                "rel_{}_sh".format(idx): torch.mean(s_h), "rel_{}_st".format(idx): torch.mean(s_t)
-            }, step=self.__iteration)
 
 
 if __name__ == '__main__':

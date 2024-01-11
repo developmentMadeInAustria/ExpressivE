@@ -7,7 +7,7 @@ from pykeen.pipeline import pipeline
 from torch.optim import Adam, Adagrad
 
 from ExpressivEModel import ExpressivE
-from ExpressivERegularizer import ExpressivERegularizer
+from Regularization.ExpressivERegularizer import ExpressivERegularizer
 from Analysis_Utils import analyze_checkpoints
 
 
