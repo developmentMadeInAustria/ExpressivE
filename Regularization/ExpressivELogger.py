@@ -36,6 +36,9 @@ class ExpressivELogger:
     def log_rules(self, loss, iteration):
         self.__result_tracker.log_metrics({"rules_loss": loss}, step=iteration)
 
+    def log_const_body_satisfaction(self, percentage, iteration):
+        self.__result_tracker.log_metrics({"const_body_satisfaction_percentage": percentage}, step=iteration)
+
     def log_alpha(self, alpha, iteration):
         self.__result_tracker.log_metrics({"alpha": alpha}, step=iteration)
 

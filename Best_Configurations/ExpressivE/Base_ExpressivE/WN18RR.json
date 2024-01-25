@@ -28,7 +28,7 @@
     },
     "rules": "../Rules/WN18RR-Max5-Run1/WN18RR-1000",
     "rules_max_body_atoms": 2,
-    "rule_min_confidence": 0.3,
+    "var_rule_min_confidence": 0.3,
     "alpha": 0.001,
     "min_alpha": 0.0002,
     "decay": "exponential",

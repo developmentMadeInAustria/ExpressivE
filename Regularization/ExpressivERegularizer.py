@@ -23,7 +23,8 @@ class ExpressivERegularizer(Regularizer):
 
     __loss_aggregation: str
     __loss_limit: float
-    __batch_size: int
+    __var_batch_size: int
+    __const_batch_size: int
     __sampling_strategy: str
     __apply_rule_confidence: bool
     __tanh_map: bool
@@ -37,7 +38,10 @@ class ExpressivERegularizer(Regularizer):
     __device: torch.device
 
     __factory: TriplesFactory
-    __rules: pd.DataFrame
+    __var_rules: pd.DataFrame
+    __const_rules: pd.DataFrame
+
+    __entity_weights: torch.FloatTensor
 
     def __init__(
             self,
@@ -45,14 +49,16 @@ class ExpressivERegularizer(Regularizer):
             dataset_kwargs: Optional[Mapping[str, Any]],
             rules: str,
             rules_max_body_atoms: int = 2,
-            rule_min_confidence: float = 0.1,
+            var_rule_min_confidence: float = 0.1,
+            const_rule_min_confidence: float = 0.5,
             loss_aggregation: str = "sum",
             loss_limit: float = 10.0,
             alpha: float = 1,
             min_alpha: float = 0,
             decay: str = "exponential",
             decay_rate: float = 5e-04,
-            batch_size: int = None,
+            var_batch_size: int = None,
+            const_batch_size: int = 0,
             sampling_strategy: str = "uniform",
             apply_rule_confidence = False,
             tanh_map: bool = True,
@@ -72,7 +78,7 @@ class ExpressivERegularizer(Regularizer):
         if rules_max_body_atoms > 2:
             raise ValueError("Error: regularizer only for up to two body atoms implemented!")
 
-        if rule_min_confidence > 1:
+        if var_rule_min_confidence > 1 or const_rule_min_confidence > 1:
             raise ValueError("Error: minimum rule confidence can't be greater than one!")
 
         if loss_aggregation != "sum" and loss_aggregation != "max":
@@ -85,9 +91,12 @@ class ExpressivERegularizer(Regularizer):
 
         self.__lr_scheduler = ExpressivELRScheduler(alpha, min_alpha, decay, decay_rate)
 
-        if batch_size is not None and batch_size < 0:
+        if var_batch_size is not None and var_batch_size < 0:
             raise ValueError("Error: batch size must not be smaller than 0")
-        self.__batch_size = batch_size
+        self.__var_batch_size = var_batch_size
+        if const_batch_size is None or const_batch_size < 0: # we can't train with all constant rules
+            raise ValueError("Error: const batch size must not be smaller than 0 and can't be None")
+        self.__const_batch_size = const_batch_size
 
         if sampling_strategy != "uniform" and sampling_strategy != "weighted":
             raise ValueError("Error: only uniform and weighted sampling strategy implemented!")
@@ -124,36 +133,61 @@ class ExpressivERegularizer(Regularizer):
         rule_df.drop('rule', axis=1)
 
         # filter
-        rule_df = rule_df[rule_df['confidence'] >= rule_min_confidence] # only min confidence rules
-        rule_df = rule_df[rule_df['body_count'] <= rules_max_body_atoms] # max body atoms
-        rule_df = rule_df[rule_df['body'].apply(self.__no_const_body)] # no constants in body
-        rule_df = rule_df[rule_df['head'].apply(self.__no_const_head)]  # no constants in head
+        rule_df = rule_df[rule_df['body_count'] <= rules_max_body_atoms]  # max body atoms
+        # filter reflexive atoms
+        rule_df = rule_df[rule_df['body'].apply(lambda atoms: all([self.__non_reflexive(atom) for atom in atoms]))]
+        rule_df = rule_df[rule_df['head'].apply(self.__non_reflexive)]
 
         # add ids
         rule_df['body_ids'] = rule_df['body'].apply(self.__body_ids)
         rule_df['head_id'] = rule_df['head'].apply(self.__head_id)
         rule_df['ids'] = rule_df.apply(lambda x: set(x.body_ids).union([x.head_id]), axis=1)
 
-        self.__rules = rule_df
+        # no constants in head (in AnyBURL, there are never only consts in body)
+        var_rule_df = rule_df[rule_df['head'].apply(self.__no_const_head)]
+        var_rule_df = var_rule_df[var_rule_df['confidence'] >= var_rule_min_confidence]
+        self.__var_rules = var_rule_df
+
+        # constants in head (in AnyBURL, there are never only consts in body)
+        const_rule_df = rule_df[rule_df['head'].apply(lambda atom: not self.__no_const_head(atom))]
+        # rules with constants only in the head exists (i.e. r1(X,A) -> r2(X,const)
+        # they are not handled as these rules have very low confidence and are only rarely justified
+        const_rule_df = const_rule_df[const_rule_df['body'].apply(lambda atom: not self.__no_const_body(atom))]
+        const_rule_df = const_rule_df[const_rule_df['confidence'] >= const_rule_min_confidence]
+        const_rule_df['const_pos_body'] = const_rule_df['body'].apply(lambda body: self.__const_pos(body[0]))
+        const_rule_df['const_pos_head'] = const_rule_df['head'].apply(self.__const_pos)
+        self.__const_rules = const_rule_df
 
     def forward(self, x: torch.FloatTensor) -> torch.FloatTensor:
         # Note: If lots of rules, split dataframe and parallelize. However, most likely upper limit (batch size) due to
         # complex backtracking.
 
+        if x.size()[0] == len(self.__factory.entity_to_id):
+            self.__entity_weights = x
+            return torch.FloatTensor([0])
+
         self.__iteration += 1 # TODO: Sync with epochs
         self.__lr_scheduler.step()
 
-        if self.__batch_size is None:
-            rules = self.__rules
+        rules_loss = None
+        var_rules = pd.DataFrame()
+        const_rules = pd.DataFrame()
+
+        if self.__var_batch_size is None:
+            var_rules = self.__var_rules
         else:
             if self.__sampling_strategy == "uniform":
-                rules = self.__rules.sample(self.__batch_size)
+                var_rules = self.__var_rules.sample(self.__var_batch_size)
             elif self.__sampling_strategy == "weighted":
-                # TODO: Sample separately rules with constants and rules without constants (confidence not comparable)
-                rules = self.__rules.sample(self.__batch_size, weights="confidence")
+                var_rules = self.__var_rules.sample(self.__var_batch_size, weights="confidence")
 
-        rules_loss = None
-        for idx, row in rules.iterrows():
+        if self.__const_batch_size > 0:
+            if self.__sampling_strategy == "uniform":
+                const_rules = self.__const_rules.sample(self.__const_batch_size)
+            elif self.__sampling_strategy == "weighted":
+                const_rules = self.__const_rules.sample(self.__const_batch_size, weights="confidence")
+
+        for idx, row in var_rules.iterrows():
             # use iterrows() as apply() + sum() throws error:
             # "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
 
@@ -167,13 +201,44 @@ class ExpressivERegularizer(Regularizer):
 
             self.__logger.log_rule(idx, rule_loss, self.__iteration)
 
+        relation_dim = x.size()[0] / 6
+        const_no_intersection = 0.0
+        for idx, row in const_rules.iterrows():
+            # use iterrows() as apply() + sum() throws error:
+            # "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
+
+            const_relation_intersections = self.__compute_const_relation_intersections(row, self.__entity_weights, x)
+            const_no_intersection += sum([1 if x is None else 0 for x in const_relation_intersections])
+
+            rule_multiplier = row['confidence'] if self.__apply_rule_confidence else 1.0
+            rule_loss = rule_multiplier * self.__compute_const_loss(row, const_relation_intersections,
+                                                                    self.__entity_weights, x)
+
+            if rules_loss is None:
+                rules_loss = rule_loss
+            else:
+                rules_loss += rule_loss
+
+            self.__logger.log_rule(idx, rule_loss, self.__iteration)
+
         alpha = self.__lr_scheduler.alpha()
+        const_body_satisfaction_percentage = 1 - (const_no_intersection / float(len(const_rules) * relation_dim))
 
         self.__logger.log_weights(x, self.__iteration)
         self.__logger.log_alpha(alpha, self.__iteration)
+        self.__logger.log_const_body_satisfaction(const_body_satisfaction_percentage, self.__iteration)
         self.__logger.log_rules(rule_loss, self.__iteration)
 
         return alpha * rules_loss
+
+    def __non_reflexive(self, atom):
+        # AnyBURL introduces a me_myself_i constant in reflexive rules
+        # In general, we don't want to deal with reflexive rules in ExpressivE as AnyBURL doesn't differ between
+        # general reflexiveness (reflexiveness is always fulfilled) and partial reflexiveness (reflexiveness only
+        # fulfilled for a few constants)
+
+        return 'me_myself' not in atom
+
 
     def __no_const_body(self, atoms: [str]) -> bool:
         arguments = map(self.__extract_arguments, atoms)
@@ -197,6 +262,22 @@ class ExpressivERegularizer(Regularizer):
         regex_result = pattern.match(arguments)
         return regex_result is not None
 
+    def __const_pos(self, atom: str) -> str:
+        args = self.__extract_arguments(atom)
+
+        x_pattern = re.compile('\([0-9]+,[A-Z]\)') # TODO: Fix for FB15k
+        y_pattern = re.compile('\([A-Z],[0-9]+\)') # TODO: Fix for FB15k
+
+        x_result = x_pattern.match(args)
+        y_result = y_pattern.match(args)
+
+        if x_result is not None:
+            return 'X'
+        if y_result is not None:
+            return 'Y'
+
+        raise ValueError("Didn't detect constant in body!")
+
     def __body_ids(self, atoms: [str]) -> [int]:
         relations = list(map(self.__extract_relation, atoms))
         return self.__factory.relations_to_ids(relations)
@@ -206,12 +287,50 @@ class ExpressivERegularizer(Regularizer):
         ids = list(self.__factory.relations_to_ids([relation]))
         return ids[0]
 
+    def __const_id(self, atom) -> int:
+        const = self.__extract_const(atom)
+        ids = list(self.__factory.entities_to_ids([const]))
+        return ids[0]
+
     def __extract_relation(self, atom: str) -> str:
         pattern = re.compile('[^(]*')
         regex_result = pattern.search(atom)
         relation = regex_result.group(0)
 
         return relation
+
+    def __extract_const(self, atom: str) -> str:
+        # TODO: Implementation
+        # Plan:
+        #   - Remove relation and brackets
+        #   - Split at ,
+        #   - Take element where length is greater than 1
+
+        return ""
+
+    def __compute_const_relation_intersections(self, rule, entities, relations) -> [bool]:
+        if len(rule['body']) > 1:
+            print("Only const rules with body length 1 implemented!")
+
+        # Intuition:
+        # Each parallelogram is defined by four lines
+        # We can evaluate each line at the const (= intersection between const and line)
+        # Choose intersections, where score is below threshold
+        #   - We have two score functions (<= d_h, <= d_t)
+        #   - For intersection at d_h check second score below d_t (and vice versa)
+        # Three possibilities:
+        #   - No intersection: Return None
+        #   - Intersection at corner: Return one intersection value
+        #   - Intersections at top/bottom, left/right line: Return two intersection values
+
+        # TODO: Return None dimension-wise
+
+        rel_weights = relations[rule['body_ids'][0], :]
+        d_h, d_t, c_h, c_t, s_h, s_t = preprocess_relations(rel_weights, tanh_map=self.__tanh_map, min_denom=self.__min_denom)
+
+        # if rule['const_pos_body'] == 'X':
+
+        return []
 
     def __compute_loss(self, rule, weights) -> torch.FloatTensor:
         body_args = map(self.__extract_arguments, rule['body'])
@@ -233,7 +352,7 @@ class ExpressivERegularizer(Regularizer):
     def __compute_loss_one_atom(self, body_args, head_args, body_ids, head_id, weights) -> torch.FloatTensor:
         if head_args != 'X,Y':
             print("Only rules with head (X,Y) supported!")
-            return torch.FloatTensor([0])
+            return 0
 
         if body_args[0] == 'X,Y':
             # hierarchy: r(x,y) -> s(x,y) = r(x,y) and i(y,y) -> s(x,y)
@@ -253,6 +372,7 @@ class ExpressivERegularizer(Regularizer):
 
     def __compute_loss_two_atoms(self, body_args, head_args, body_ids, head_id, weights) -> torch.FloatTensor:
         if head_args != 'X,Y':
+            # AnyBURl only supports acyclic rules of length 1 - should never land here
             print("Only rules with head (X,Y) supported!")
             return torch.FloatTensor([0])
 
@@ -269,6 +389,13 @@ class ExpressivERegularizer(Regularizer):
 
         rule_weights = torch.cat((loss_body_weights, head_weights), dim=0)
         return self.__general_composition_loss(rule_weights)
+
+    def __compute_const_loss(self, rule, intersections, entities, relations) -> torch.FloatTensor:
+        if len(rule['body']) > 1:
+            print("Only const rules with body length 1 implemented!")
+
+        # TODO: Implement
+        return torch.FloatTensor([0])
 
     def __compute_chain_order(self, body_args, current_chain, prev_dangling_atom) -> [bool]:
         """

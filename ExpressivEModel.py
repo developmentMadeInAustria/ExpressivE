@@ -131,6 +131,12 @@ class ExpressivE(ERModel):
 
         if regularizer is not None:
             self.append_weight_regularizer(
+                parameter=self.entity_representations[0].parameters(),
+                regularizer=regularizer,
+                regularizer_kwargs=regularizer_kwargs
+            )
+
+            self.append_weight_regularizer(
                 parameter=self.relation_representations[0].parameters(),
                 regularizer=regularizer,
                 regularizer_kwargs=regularizer_kwargs,
