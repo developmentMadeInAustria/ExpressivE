@@ -239,7 +239,7 @@ class ExpressivERegularizer(Regularizer):
         self.__logger.log_weights(x, self.__iteration)
         self.__logger.log_alpha(alpha, self.__iteration)
         self.__logger.log_const_body_satisfaction(const_body_satisfaction_percentage, self.__iteration)
-        self.__logger.log_rules(rule_loss, self.__iteration)
+        self.__logger.log_rules(rules_loss, self.__iteration)
 
         return alpha * rules_loss
 
