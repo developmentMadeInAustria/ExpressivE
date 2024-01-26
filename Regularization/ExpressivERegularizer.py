@@ -221,6 +221,9 @@ class ExpressivERegularizer(Regularizer):
             # Generally, we either have 2 or 0 intersections per dimension
             const_intersections += float(torch.count_nonzero(mask)) / 2
 
+            print(intersections.device)
+            print(mask.device)
+
             rule_multiplier = row['confidence'] if self.__apply_rule_confidence else 1.0
             rule_loss = rule_multiplier * self.__compute_const_loss(row, intersections, mask,
                                                                     self.__entity_weights, x)
@@ -333,7 +336,7 @@ class ExpressivERegularizer(Regularizer):
         raise ValueError("Didn't detect constant in atom!")
 
     # noinspection PyTypeChecker
-    def __compute_const_relation_intersections(self, rule, entities, relations) -> torch.FloatTensor:
+    def __compute_const_relation_intersections(self, rule, entities, relations) -> (torch.FloatTensor, torch.FloatTensor):
         if len(rule['body']) > 1:
             print("Only const rules with body length 1 implemented!")
 
