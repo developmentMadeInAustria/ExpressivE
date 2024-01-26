@@ -450,14 +450,32 @@ class ExpressivERegularizer(Regularizer):
         if len(rule['body']) > 1:
             print("Only const rules with body length 1 implemented!")
 
-        # TODO: Implement
-        return torch.FloatTensor([0])
+        const: torch.FloatTensor = entities[rule['const_id_head'], :]
+        const_stacked = torch.stack([const, const, const, const], 1)
 
-    def __check_distance_head(self, head, tail, center_head, slope_tail, distance_head) -> bool:
-        return True
+        rel_weights = relations[rule['head_id'], :]
+        d_h, d_t, c_h, c_t, s_h, s_t = preprocess_relations(rel_weights, tanh_map=self.__tanh_map, min_denom=self.__min_denom)
+        d_h_stacked = torch.stack([d_h, d_h, d_h, d_h], 1)
+        d_t_stacked = torch.stack([d_t, d_t, d_t, d_t], 1)
+        c_h_stacked = torch.stack([c_h, c_h, c_h, c_h], 1)
+        c_t_stacked = torch.stack([c_t, c_t, c_t, c_t], 1)
+        s_h_stacked = torch.stack([s_h, s_h, s_h, s_h], 1)
+        s_t_stacked = torch.stack([s_t, s_t, s_t, s_t], 1)
 
-    def __check_distance_tail(self, head, tail, center_tail, slope_head, distance_tail) -> bool:
-        return True
+        # TODO: Use loss function from paper (scale with width of parallelogram)
+        zeros = torch.zeros(intersections.size())
+        if rule['const_pos_head'] == 'X':
+            eq1_loss = torch.maximum(torch.absolute(const_stacked - c_h_stacked - s_t_stacked * intersections) - d_h_stacked, zeros)
+            eq1_loss_mean = torch.mean(torch.masked_select(eq1_loss, ~torch.isnan(eq1_loss)))
+            eq2_loss = torch.maximum(torch.absolute(intersections - c_t_stacked - s_h_stacked * const_stacked) - d_t_stacked, zeros)
+            eq2_loss_mean = torch.mean(torch.masked_select(eq2_loss, ~torch.isnan(eq2_loss)))
+        else:
+            eq1_loss = torch.maximum(torch.absolute(intersections - c_h_stacked - s_t_stacked * const_stacked) - d_h_stacked, zeros)
+            eq1_loss_mean = torch.mean(torch.masked_select(eq1_loss, ~torch.isnan(eq1_loss)))
+            eq2_loss = torch.maximum(torch.absolute(const_stacked - c_t_stacked - s_h_stacked * intersections) - d_t_stacked, zeros)
+            eq2_loss_mean = torch.mean(torch.masked_select(eq2_loss, ~torch.isnan(eq2_loss)))
+
+        return eq1_loss_mean + eq2_loss_mean
 
     def __compute_chain_order(self, body_args, current_chain, prev_dangling_atom) -> [bool]:
         """
