@@ -221,9 +221,6 @@ class ExpressivERegularizer(Regularizer):
             # Generally, we either have 2 or 0 intersections per dimension
             const_intersections += float(torch.count_nonzero(mask)) / 2
 
-            print(intersections.device)
-            print(mask.device)
-
             rule_multiplier = row['confidence'] if self.__apply_rule_confidence else 1.0
             rule_loss = rule_multiplier * self.__compute_const_loss(row, intersections, mask,
                                                                     self.__entity_weights, x)
@@ -469,6 +466,8 @@ class ExpressivERegularizer(Regularizer):
         const: torch.FloatTensor = entities[rule['const_id_head'], :]
         const_stacked = torch.stack([const, const, const, const], 1)
 
+        print(const_stacked.device)
+
         rel_weights = relations[rule['head_id'], :]
         d_h, d_t, c_h, c_t, s_h, s_t = preprocess_relations(rel_weights, tanh_map=self.__tanh_map, min_denom=self.__min_denom)
         d_h_stacked = torch.stack([d_h, d_h, d_h, d_h], 1)
@@ -477,6 +476,8 @@ class ExpressivERegularizer(Regularizer):
         c_t_stacked = torch.stack([c_t, c_t, c_t, c_t], 1)
         s_h_stacked = torch.stack([s_h, s_h, s_h, s_h], 1)
         s_t_stacked = torch.stack([s_t, s_t, s_t, s_t], 1)
+
+        print(d_h_stacked.device)
 
         # TODO: Use loss function from paper (scale with width of parallelogram)
         zeros = torch.zeros(intersections.size(), device=self.__device)
@@ -491,6 +492,7 @@ class ExpressivERegularizer(Regularizer):
             eq2_loss = torch.maximum(torch.absolute(const_stacked - c_t_stacked - s_h_stacked * intersections) - d_t_stacked, zeros)
             eq2_loss_mean = torch.mean(torch.masked_select(eq2_loss, mask))
 
+        print(eq1_loss_mean.device)
         return eq1_loss_mean + eq2_loss_mean
 
     def __compute_chain_order(self, body_args, current_chain, prev_dangling_atom) -> [bool]:
