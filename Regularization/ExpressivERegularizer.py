@@ -174,9 +174,10 @@ class ExpressivERegularizer(Regularizer):
 
         if x.size()[0] == len(self.__factory.entity_to_id):
             self.__entity_weights = x
-            return torch.FloatTensor([0], device=self.__device)
+            # noinspection PyTypeChecker
+            return torch.zeros(1, device=self.__device)
 
-        self.__iteration += 1 # TODO: Sync with epochs
+        self.__iteration += 1  # TODO: Sync with epochs
         self.__lr_scheduler.step()
 
         rules_loss = None
