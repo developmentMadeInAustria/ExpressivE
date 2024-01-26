@@ -204,18 +204,18 @@ class ExpressivERegularizer(Regularizer):
 
             self.__logger.log_rule(idx, rule_loss, self.__iteration)
 
-        relation_dim = x.size()[0] / 6
+        relation_dim = x.size()[1] / 6
         const_intersections = 0.0
         for idx, row in const_rules.iterrows():
             # use iterrows() as apply() + sum() throws error:
             # "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
 
-            const_relation_intersections = self.__compute_const_relation_intersections(row, self.__entity_weights, x)
+            intersections, mask = self.__compute_const_relation_intersections(row, self.__entity_weights, x)
             # Generally, we either have 2 or 0 intersections per dimension
-            const_intersections += float(torch.count_nonzero(~torch.isnan(const_relation_intersections))) / 2
+            const_intersections += float(torch.count_nonzero(mask)) / 2
 
             rule_multiplier = row['confidence'] if self.__apply_rule_confidence else 1.0
-            rule_loss = rule_multiplier * self.__compute_const_loss(row, const_relation_intersections,
+            rule_loss = rule_multiplier * self.__compute_const_loss(row, intersections, mask,
                                                                     self.__entity_weights, x)
 
             if rules_loss is None:
@@ -353,18 +353,21 @@ class ExpressivERegularizer(Regularizer):
             tail_equation_intersections_1 = c_t + s_h * const - d_t
             tail_equation_intersections_2 = c_t + s_h * const + d_t
 
-            head_equation_intersections_1 = torch.where(torch.absolute(head_equation_intersections_1 - c_t - s_h * const) <= d_t, head_equation_intersections_1, np.nan)
-            head_equation_intersections_2 = torch.where(torch.absolute(head_equation_intersections_2 - c_t - s_h * const) <= d_t, head_equation_intersections_2, np.nan)
+            head_equation_intersections_1_mask = torch.absolute(head_equation_intersections_1 - c_t - s_h * const) <= d_t
+            head_equation_intersections_2_mask = torch.absolute(head_equation_intersections_2 - c_t - s_h * const) <= d_t
 
-            tail_equation_intersections_1 = torch.where(torch.absolute(const - c_h - s_t * tail_equation_intersections_1) <= d_h, tail_equation_intersections_1, np.nan)
-            tail_equation_intersections_2 = torch.where(torch.absolute(const - c_h - s_t * tail_equation_intersections_2) <= d_h, tail_equation_intersections_2, np.nan)
+            tail_equation_intersections_1_mask = torch.absolute(const - c_h - s_t * tail_equation_intersections_1) <= d_h
+            tail_equation_intersections_2_mask = torch.absolute(const - c_h - s_t * tail_equation_intersections_2) <= d_h
 
-            intersections_list = [head_equation_intersections_1,
-                                  head_equation_intersections_2,
-                                  tail_equation_intersections_1,
-                                  tail_equation_intersections_2]
+            intersections_list = [head_equation_intersections_1, head_equation_intersections_2,
+                                  tail_equation_intersections_1, tail_equation_intersections_2]
             all_intersections = torch.stack(intersections_list, 1)
-            return all_intersections
+
+            mask_list = [head_equation_intersections_1_mask, head_equation_intersections_2_mask,
+                         tail_equation_intersections_1_mask, tail_equation_intersections_2_mask]
+            all_masks = torch.stack(mask_list, 1)
+
+            return all_intersections, all_masks
 
         elif rule['const_pos_body'] == 'Y':
             head_equation_intersections_1 = c_h + s_t * const - d_h
@@ -373,18 +376,21 @@ class ExpressivERegularizer(Regularizer):
             tail_equation_intersections_1 = (const - c_t - d_t) / s_h
             tail_equation_intersections_2 = (const - c_t + d_t) / s_h
 
-            head_equation_intersections_1 = torch.where(torch.absolute(const - c_t - s_h * head_equation_intersections_1) <= d_t, head_equation_intersections_1, np.nan)
-            head_equation_intersections_2 = torch.where(torch.absolute(const - c_t - s_h * head_equation_intersections_2) <= d_t, head_equation_intersections_2, np.nan)
+            head_equation_intersections_1_mask = torch.absolute(const - c_t - s_h * head_equation_intersections_1) <= d_t
+            head_equation_intersections_2_mask = torch.absolute(const - c_t - s_h * head_equation_intersections_2) <= d_t
 
-            tail_equation_intersections_1 = torch.where(torch.absolute(tail_equation_intersections_1 - c_h - s_t * const) <= d_h, tail_equation_intersections_1, np.nan)
-            tail_equation_intersections_2 = torch.where(torch.absolute(tail_equation_intersections_2 - c_h - s_t * const) <= d_h, tail_equation_intersections_2, np.nan)
+            tail_equation_intersections_1_mask = torch.absolute(tail_equation_intersections_1 - c_h - s_t * const) <= d_h
+            tail_equation_intersections_2_mask = torch.absolute(tail_equation_intersections_2 - c_h - s_t * const) <= d_h
 
-            intersections_list = [head_equation_intersections_1,
-                                  head_equation_intersections_2,
-                                  tail_equation_intersections_1,
-                                  tail_equation_intersections_2]
+            intersections_list = [head_equation_intersections_1, head_equation_intersections_2,
+                                  tail_equation_intersections_1, tail_equation_intersections_2]
             all_intersections = torch.stack(intersections_list, 1)
-            return all_intersections
+
+            mask_list = [head_equation_intersections_1_mask, head_equation_intersections_2_mask,
+                         tail_equation_intersections_1_mask, tail_equation_intersections_2_mask]
+            all_masks = torch.stack(mask_list, 1)
+
+            return all_intersections, all_masks
 
         raise ValueError("Invalid constant position")
 
@@ -446,7 +452,7 @@ class ExpressivERegularizer(Regularizer):
         rule_weights = torch.cat((loss_body_weights, head_weights), dim=0)
         return self.__general_composition_loss(rule_weights)
 
-    def __compute_const_loss(self, rule, intersections, entities, relations) -> torch.FloatTensor:
+    def __compute_const_loss(self, rule, intersections, mask, entities, relations) -> torch.FloatTensor:
         if len(rule['body']) > 1:
             print("Only const rules with body length 1 implemented!")
 
@@ -466,14 +472,14 @@ class ExpressivERegularizer(Regularizer):
         zeros = torch.zeros(intersections.size())
         if rule['const_pos_head'] == 'X':
             eq1_loss = torch.maximum(torch.absolute(const_stacked - c_h_stacked - s_t_stacked * intersections) - d_h_stacked, zeros)
-            eq1_loss_mean = torch.mean(torch.masked_select(eq1_loss, ~torch.isnan(eq1_loss)))
+            eq1_loss_mean = torch.mean(torch.masked_select(eq1_loss, mask))
             eq2_loss = torch.maximum(torch.absolute(intersections - c_t_stacked - s_h_stacked * const_stacked) - d_t_stacked, zeros)
-            eq2_loss_mean = torch.mean(torch.masked_select(eq2_loss, ~torch.isnan(eq2_loss)))
+            eq2_loss_mean = torch.mean(torch.masked_select(eq2_loss, mask))
         else:
             eq1_loss = torch.maximum(torch.absolute(intersections - c_h_stacked - s_t_stacked * const_stacked) - d_h_stacked, zeros)
-            eq1_loss_mean = torch.mean(torch.masked_select(eq1_loss, ~torch.isnan(eq1_loss)))
+            eq1_loss_mean = torch.mean(torch.masked_select(eq1_loss, mask))
             eq2_loss = torch.maximum(torch.absolute(const_stacked - c_t_stacked - s_h_stacked * intersections) - d_t_stacked, zeros)
-            eq2_loss_mean = torch.mean(torch.masked_select(eq2_loss, ~torch.isnan(eq2_loss)))
+            eq2_loss_mean = torch.mean(torch.masked_select(eq2_loss, mask))
 
         return eq1_loss_mean + eq2_loss_mean
 
