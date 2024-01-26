@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 import torch
@@ -156,6 +157,8 @@ class ExpressivERegularizer(Regularizer):
         const_rule_df = const_rule_df[const_rule_df['confidence'] >= const_rule_min_confidence]
         const_rule_df['const_pos_body'] = const_rule_df['body'].apply(lambda body: self.__const_pos(body[0]))
         const_rule_df['const_pos_head'] = const_rule_df['head'].apply(self.__const_pos)
+        const_rule_df['const_id_body'] = const_rule_df['body'].apply(lambda body: self.__const_id(body[0]))
+        const_rule_df['const_id_head'] = const_rule_df['head'].apply(self.__const_id)
         self.__const_rules = const_rule_df
 
     def forward(self, x: torch.FloatTensor) -> torch.FloatTensor:
@@ -202,13 +205,14 @@ class ExpressivERegularizer(Regularizer):
             self.__logger.log_rule(idx, rule_loss, self.__iteration)
 
         relation_dim = x.size()[0] / 6
-        const_no_intersection = 0.0
+        const_intersections = 0.0
         for idx, row in const_rules.iterrows():
             # use iterrows() as apply() + sum() throws error:
             # "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
 
             const_relation_intersections = self.__compute_const_relation_intersections(row, self.__entity_weights, x)
-            const_no_intersection += sum([1 if x is None else 0 for x in const_relation_intersections])
+            # Generally, we either have 2 or 0 intersections per dimension
+            const_intersections += float(torch.count_nonzero(~torch.isnan(const_relation_intersections))) / 2
 
             rule_multiplier = row['confidence'] if self.__apply_rule_confidence else 1.0
             rule_loss = rule_multiplier * self.__compute_const_loss(row, const_relation_intersections,
@@ -222,7 +226,7 @@ class ExpressivERegularizer(Regularizer):
             self.__logger.log_rule(idx, rule_loss, self.__iteration)
 
         alpha = self.__lr_scheduler.alpha()
-        const_body_satisfaction_percentage = 1 - (const_no_intersection / float(len(const_rules) * relation_dim))
+        const_body_satisfaction_percentage = const_intersections / float(len(const_rules) * relation_dim)
 
         self.__logger.log_weights(x, self.__iteration)
         self.__logger.log_alpha(alpha, self.__iteration)
@@ -265,8 +269,8 @@ class ExpressivERegularizer(Regularizer):
     def __const_pos(self, atom: str) -> str:
         args = self.__extract_arguments(atom)
 
-        x_pattern = re.compile('\([0-9]+,[A-Z]\)') # TODO: Fix for FB15k
-        y_pattern = re.compile('\([A-Z],[0-9]+\)') # TODO: Fix for FB15k
+        x_pattern = re.compile('\(.{2}.*,[A-Z]\)') # TODO: Fix for FB15k
+        y_pattern = re.compile('\([A-Z],.{2}.*\)') # TODO: Fix for FB15k
 
         x_result = x_pattern.match(args)
         y_result = y_pattern.match(args)
@@ -289,8 +293,16 @@ class ExpressivERegularizer(Regularizer):
 
     def __const_id(self, atom) -> int:
         const = self.__extract_const(atom)
-        ids = list(self.__factory.entities_to_ids([const]))
-        return ids[0]
+
+        # we need to work with entity_to_id as entities_to_ids() doesn't work, when we have integer entities
+        mapping = self.__factory.entity_to_id
+
+        try:
+            const_converted = int(const)  # consts can have leading 0s, which must be removed
+        except ValueError:
+            const_converted = const
+
+        return mapping[const_converted]
 
     def __extract_relation(self, atom: str) -> str:
         pattern = re.compile('[^(]*')
@@ -300,15 +312,21 @@ class ExpressivERegularizer(Regularizer):
         return relation
 
     def __extract_const(self, atom: str) -> str:
-        # TODO: Implementation
-        # Plan:
-        #   - Remove relation and brackets
-        #   - Split at ,
-        #   - Take element where length is greater than 1
+        x_pos_pattern = re.compile('\(.{2}.*,')
+        y_pos_pattern = re.compile(',.{2}.*\)')
 
-        return ""
+        x_result = x_pos_pattern.search(atom)
+        y_result = y_pos_pattern.search(atom)
 
-    def __compute_const_relation_intersections(self, rule, entities, relations) -> [bool]:
+        if x_result is not None:
+            return x_result.group(0)[1:-1]
+        if y_result is not None:
+            return y_result.group(0)[1:-1]
+
+        raise ValueError("Didn't detect constant in atom!")
+
+    # noinspection PyTypeChecker
+    def __compute_const_relation_intersections(self, rule, entities, relations) -> torch.FloatTensor:
         if len(rule['body']) > 1:
             print("Only const rules with body length 1 implemented!")
 
@@ -323,14 +341,52 @@ class ExpressivERegularizer(Regularizer):
         #   - Intersection at corner: Return one intersection value
         #   - Intersections at top/bottom, left/right line: Return two intersection values
 
-        # TODO: Return None dimension-wise
+        const: torch.FloatTensor = entities[rule['const_id_body'], :]
 
         rel_weights = relations[rule['body_ids'][0], :]
         d_h, d_t, c_h, c_t, s_h, s_t = preprocess_relations(rel_weights, tanh_map=self.__tanh_map, min_denom=self.__min_denom)
 
-        # if rule['const_pos_body'] == 'X':
+        if rule['const_pos_body'] == 'X':
+            head_equation_intersections_1 = (const - c_h - d_h) / s_t
+            head_equation_intersections_2 = (const - c_h + d_h) / s_t
 
-        return []
+            tail_equation_intersections_1 = c_t + s_h * const - d_t
+            tail_equation_intersections_2 = c_t + s_h * const + d_t
+
+            head_equation_intersections_1 = torch.where(torch.absolute(head_equation_intersections_1 - c_t - s_h * const) <= d_t, head_equation_intersections_1, np.nan)
+            head_equation_intersections_2 = torch.where(torch.absolute(head_equation_intersections_2 - c_t - s_h * const) <= d_t, head_equation_intersections_2, np.nan)
+
+            tail_equation_intersections_1 = torch.where(torch.absolute(const - c_h - s_t * tail_equation_intersections_1) <= d_h, tail_equation_intersections_1, np.nan)
+            tail_equation_intersections_2 = torch.where(torch.absolute(const - c_h - s_t * tail_equation_intersections_2) <= d_h, tail_equation_intersections_2, np.nan)
+
+            intersections_list = [head_equation_intersections_1,
+                                  head_equation_intersections_2,
+                                  tail_equation_intersections_1,
+                                  tail_equation_intersections_2]
+            all_intersections = torch.stack(intersections_list, 1)
+            return all_intersections
+
+        elif rule['const_pos_body'] == 'Y':
+            head_equation_intersections_1 = c_h + s_t * const - d_h
+            head_equation_intersections_2 = c_h + s_t * const + d_h
+
+            tail_equation_intersections_1 = (const - c_t - d_t) / s_h
+            tail_equation_intersections_2 = (const - c_t + d_t) / s_h
+
+            head_equation_intersections_1 = torch.where(torch.absolute(const - c_t - s_h * head_equation_intersections_1) <= d_t, head_equation_intersections_1, np.nan)
+            head_equation_intersections_2 = torch.where(torch.absolute(const - c_t - s_h * head_equation_intersections_2) <= d_t, head_equation_intersections_2, np.nan)
+
+            tail_equation_intersections_1 = torch.where(torch.absolute(tail_equation_intersections_1 - c_h - s_t * const) <= d_h, tail_equation_intersections_1, np.nan)
+            tail_equation_intersections_2 = torch.where(torch.absolute(tail_equation_intersections_2 - c_h - s_t * const) <= d_h, tail_equation_intersections_2, np.nan)
+
+            intersections_list = [head_equation_intersections_1,
+                                  head_equation_intersections_2,
+                                  tail_equation_intersections_1,
+                                  tail_equation_intersections_2]
+            all_intersections = torch.stack(intersections_list, 1)
+            return all_intersections
+
+        raise ValueError("Invalid constant position")
 
     def __compute_loss(self, rule, weights) -> torch.FloatTensor:
         body_args = map(self.__extract_arguments, rule['body'])
@@ -396,6 +452,12 @@ class ExpressivERegularizer(Regularizer):
 
         # TODO: Implement
         return torch.FloatTensor([0])
+
+    def __check_distance_head(self, head, tail, center_head, slope_tail, distance_head) -> bool:
+        return True
+
+    def __check_distance_tail(self, head, tail, center_tail, slope_head, distance_tail) -> bool:
+        return True
 
     def __compute_chain_order(self, body_args, current_chain, prev_dangling_atom) -> [bool]:
         """
