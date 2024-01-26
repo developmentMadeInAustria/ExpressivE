@@ -476,7 +476,7 @@ class ExpressivERegularizer(Regularizer):
         s_t_stacked = torch.stack([s_t, s_t, s_t, s_t], 1)
 
         # TODO: Use loss function from paper (scale with width of parallelogram)
-        zeros = torch.zeros(intersections.size())
+        zeros = torch.zeros(intersections.size(), device=self.__device)
         if rule['const_pos_head'] == 'X':
             eq1_loss = torch.maximum(torch.absolute(const_stacked - c_h_stacked - s_t_stacked * intersections) - d_h_stacked, zeros)
             eq1_loss_mean = torch.mean(torch.masked_select(eq1_loss, mask))
