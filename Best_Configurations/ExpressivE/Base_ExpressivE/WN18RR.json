@@ -30,7 +30,7 @@
     "rules_max_body_atoms": 2,
     "var_rule_min_confidence": 0.1,
     "const_rule_min_confidence": 0.5,
-    "loss_functions_two_atoms": [1, 2, 3, 5, 6],
+    "loss_functions_two_atoms": [1, 2, 3, 4, 5, 6],
     "alpha": 0.1,
     "min_alpha": 0.02,
     "decay": "exponential",

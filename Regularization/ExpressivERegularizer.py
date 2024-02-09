@@ -25,6 +25,8 @@ class ExpressivERegularizer(Regularizer):
     __loss_functions_two_atoms: [int]
     __loss_aggregation: str
     __loss_limit: float
+    __loss_epsilon: float
+    __loss_division_handling: str
     __var_batch_size: int
     __const_batch_size: int
     __sampling_strategy: str
@@ -56,6 +58,8 @@ class ExpressivERegularizer(Regularizer):
             loss_functions_two_atoms=None,
             loss_aggregation: str = "sum",
             loss_limit: float = 25.0,
+            loss_epsilon: float = 0.0001,
+            loss_division_handling: str = "masked",
             alpha: float = 1,
             min_alpha: float = 0,
             decay: str = "exponential",
@@ -96,6 +100,11 @@ class ExpressivERegularizer(Regularizer):
         if loss_limit <= 0:
             raise ValueError("Error: loss limit must be greater than 0!")
         self.__loss_limit = loss_limit
+
+        if loss_division_handling != "masked" and loss_division_handling != "eps_addition":
+            raise ValueError("Error: loss division handling supports only masked and eps_addition")
+        self.__loss_epsilon = loss_epsilon
+        self.__loss_division_handling = loss_division_handling
 
         self.__lr_scheduler = ExpressivELRScheduler(alpha, min_alpha, decay, decay_rate)
 
@@ -613,7 +622,14 @@ class ExpressivERegularizer(Regularizer):
             eq4_loss = 0
 
         if 5 in self.__loss_functions_two_atoms:
-            eq5_loss = abs(corner_x*(ones - s1_h*s1_t) - c1_t*s1_t - c1_h) - d1_t*abs(s1_t) - d1_h
+            if self.__loss_division_handling == "masked":
+                eq5_loss = abs(corner_x*(ones - s1_h*s1_t) - c1_t*s1_t - c1_h) - d1_t*abs(s1_t) - d1_h
+                eq5_loss_mask = abs(s1_t) > self.__loss_epsilon
+                eq5_loss = torch.masked_select(eq5_loss, eq5_loss_mask)
+            else:  # eps_addition
+                eq5_s1_t = abs(s1_t) + self.__loss_epsilon
+                eq5_loss = abs(corner_x * (ones - s1_h * s1_t) - c1_t * s1_t - c1_h) - d1_t * eq5_s1_t - d1_h
+
             eq5_loss = torch.mean(torch.clamp(eq5_loss, 0, self.__loss_limit))
         else:
             eq5_loss = 0
