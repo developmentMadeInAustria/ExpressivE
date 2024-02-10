@@ -142,7 +142,10 @@ def main(**kwargs):
             pipeline(
                 model=model,
                 model_kwargs=model_kwargs,
-                dataset=config['dataset'],
+                dataset=config.get('dataset'),  # Either specify dataset to load standard datasets
+                training=config.get('dataset_train_path'),  # or set paths train, test, valid files
+                testing=config.get('dataset_test_path'),
+                validation=config.get('dataset_validation_path'),
                 dataset_kwargs=dict(create_inverse_triples=config['dataset_kwargs']['create_inverse_triples']),
                 optimizer=optimizer,
                 optimizer_kwargs=dict(lr=config['optimizer_kwargs']['lr']),
