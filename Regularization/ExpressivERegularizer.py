@@ -49,9 +49,12 @@ class ExpressivERegularizer(Regularizer):
 
     def __init__(
             self,
-            dataset: str,
-            dataset_kwargs: Optional[Mapping[str, Any]],
             rules: str,
+            dataset: str = None,
+            dataset_kwargs: Optional[Mapping[str, Any]] = None,
+            dataset_train_path: str = None,
+            dataset_test_path: str = None,
+            dataset_validation_path: str = None,
             rules_max_body_atoms: int = 2,
             var_rule_min_confidence: float = 0.1,
             const_rule_min_confidence: float = 0.5,
@@ -137,7 +140,9 @@ class ExpressivERegularizer(Regularizer):
         # get dataset and triples factory
         mutable_dataset_kwargs = dict(dataset_kwargs)
         mutable_dataset_kwargs['eager'] = True
-        dataset = get_dataset(dataset=dataset, dataset_kwargs=mutable_dataset_kwargs)
+        dataset = get_dataset(dataset=dataset, dataset_kwargs=mutable_dataset_kwargs,
+                              training=dataset_train_path, testing=dataset_test_path,
+                              validation=dataset_validation_path)
         # noinspection PyTypeChecker
         self.__factory: TriplesFactory = dataset.training
 
@@ -314,12 +319,10 @@ class ExpressivERegularizer(Regularizer):
         # we need to work with entity_to_id as entities_to_ids() doesn't work, when we have integer entities
         mapping = self.__factory.entity_to_id
 
-        try:
-            const_converted = int(const)  # consts can have leading 0s, which must be removed
-        except ValueError:
-            const_converted = const
+        if type(list(mapping.keys())[0]) is int:
+            const = int(const)  # consts can have leading 0s, which must be removed
 
-        return mapping[const_converted]
+        return mapping[const]
 
     def __extract_relation(self, atom: str) -> str:
         pattern = re.compile('[^(]*')
