@@ -37,6 +37,7 @@ class ExpressivERegularizer(Regularizer):
     __iteration: int = 0
 
     __lr_scheduler: ExpressivELRScheduler
+    __track_only: bool
     __logger: ExpressivELogger
 
     __device: torch.device
@@ -73,9 +74,11 @@ class ExpressivERegularizer(Regularizer):
             apply_rule_confidence = False,
             tanh_map: bool = True,
             min_denom: float = 0.5,
+            track_only=False,
             tracked_rules=None,
             track_all_rules: bool = False,
             track_relation_params: bool = False,
+            track_relation_statistic_update_cycle: int = 170,
             result_tracker: HintOrType[ResultTracker] = None,
             result_tracker_kwargs: OptionalKwargs = None,
             **kwargs
@@ -126,7 +129,7 @@ class ExpressivERegularizer(Regularizer):
         self.__tanh_map = tanh_map
         self.__min_denom = min_denom
 
-        self.__logger = ExpressivELogger(tanh_map, min_denom, tracked_rules, track_all_rules, track_relation_params, result_tracker, result_tracker_kwargs)
+        self.__track_only = track_only
 
         if torch.cuda.is_available():
             # pykeen is optimized for single gpu usage
@@ -145,6 +148,10 @@ class ExpressivERegularizer(Regularizer):
                               validation=dataset_validation_path)
         # noinspection PyTypeChecker
         self.__factory: TriplesFactory = dataset.training
+
+        self.__logger = ExpressivELogger(tanh_map, min_denom, tracked_rules, track_all_rules, track_relation_params,
+                                         track_relation_statistic_update_cycle, self.__factory,
+                                         result_tracker, result_tracker_kwargs)
 
         # read rules and format
         rule_df = pd.read_csv(rules, sep='\t', names=['predictions', 'support', 'confidence', 'rule'])
@@ -182,14 +189,17 @@ class ExpressivERegularizer(Regularizer):
         const_rule_df['const_id_head'] = const_rule_df['head'].apply(self.__const_id)
         self.__const_rules = const_rule_df
 
-    def forward(self, x: torch.FloatTensor) -> torch.FloatTensor:
+    def forward(self, x: torch.FloatTensor) -> torch.FloatTensor | int:
         # Note: If lots of rules, split dataframe and parallelize. However, most likely upper limit (batch size) due to
         # complex backtracking.
 
         if x.size()[0] == len(self.__factory.entity_to_id):
             self.__entity_weights = x
+            self.__logger.update_entities(x)
             # noinspection PyTypeChecker
             return torch.zeros(1, device=self.__device)
+        else:
+            self.__logger.update_relations(x)
 
         self.__iteration += 1  # TODO: Sync with epochs
         self.__lr_scheduler.step()
@@ -254,8 +264,12 @@ class ExpressivERegularizer(Regularizer):
         self.__logger.log_alpha(alpha, self.__iteration)
         self.__logger.log_const_body_satisfaction(const_body_satisfaction_percentage, self.__iteration)
         self.__logger.log_rules(rules_loss, self.__iteration)
+        self.__logger.log_entity_relation_statistics(self.__iteration)
 
-        return alpha * rules_loss
+        if self.__track_only:
+            return 0
+        else:
+            return alpha * rules_loss
 
     def __non_reflexive(self, atom):
         # AnyBURL introduces a me_myself_i constant in reflexive rules
