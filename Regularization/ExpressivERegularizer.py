@@ -79,6 +79,7 @@ class ExpressivERegularizer(Regularizer):
             track_all_rules: bool = False,
             track_relation_params: bool = False,
             track_relation_statistic_update_cycle: int = -1,
+            track_result_statistics_update_cycle: int = -1,
             result_tracker: HintOrType[ResultTracker] = None,
             result_tracker_kwargs: OptionalKwargs = None,
             **kwargs
@@ -150,8 +151,8 @@ class ExpressivERegularizer(Regularizer):
         self.__factory: TriplesFactory = dataset.training
 
         self.__logger = ExpressivELogger(tanh_map, min_denom, tracked_rules, track_all_rules, track_relation_params,
-                                         track_relation_statistic_update_cycle, self.__factory,
-                                         result_tracker, result_tracker_kwargs)
+                                         track_relation_statistic_update_cycle, track_result_statistics_update_cycle,
+                                         self.__factory, result_tracker, result_tracker_kwargs)
 
         # read rules and format
         rule_df = pd.read_csv(rules, sep='\t', names=['predictions', 'support', 'confidence', 'rule'])
@@ -265,6 +266,7 @@ class ExpressivERegularizer(Regularizer):
         self.__logger.log_const_body_satisfaction(const_body_satisfaction_percentage, self.__iteration)
         self.__logger.log_rules(rules_loss, self.__iteration)
         self.__logger.log_entity_relation_statistics(self.__iteration)
+        self.__logger.log_result_statistics(self.__iteration)
 
         if self.__track_only:
             return 0

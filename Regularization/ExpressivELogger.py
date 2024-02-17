@@ -20,6 +20,7 @@ class ExpressivELogger:
     __result_tracker: ResultTracker
 
     __relation_statistic_update_cycle: int
+    __result_statistics_update_cycle: int
     __triples_factory: TriplesFactory
     __negative_triples_factory: TriplesFactory
     __entities: torch.FloatTensor = None
@@ -27,7 +28,7 @@ class ExpressivELogger:
     __relations: torch.FloatTensor = None
     __prev_relations: torch.FloatTensor = None
 
-    def __init__(self, tan_hmap: bool, min_denom: float, tracked_rules: list, track_all_rules: bool, track_relation_params: bool, relation_statistic_update_cycle: int, triples_factory: TriplesFactory, result_tracker: HintOrType[ResultTracker], result_tracker_kwargs: OptionalKwargs):
+    def __init__(self, tan_hmap: bool, min_denom: float, tracked_rules: list, track_all_rules: bool, track_relation_params: bool, relation_statistic_update_cycle: int, result_statistics_update_cycle: int, triples_factory: TriplesFactory, result_tracker: HintOrType[ResultTracker], result_tracker_kwargs: OptionalKwargs):
 
         self.__tanh_map = tan_hmap
         self.__min_denom = min_denom
@@ -39,6 +40,7 @@ class ExpressivELogger:
         self.__track_relation_params = track_relation_params
 
         self.__relation_statistic_update_cycle = relation_statistic_update_cycle
+        self.__result_statistics_update_cycle = result_statistics_update_cycle
         self.__triples_factory = triples_factory
         self.__generate_negative_samples()
 
@@ -80,6 +82,9 @@ class ExpressivELogger:
 
     def log_entity_relation_statistics(self, iteration):
         if self.__relation_statistic_update_cycle == -1 or (iteration % self.__relation_statistic_update_cycle) != 0:
+            if self.__prev_entities is None or self.__prev_relations is None:
+                self.__prev_entities = self.__entities
+                self.__prev_relations = self.__relations
             return
 
         if self.__entities is None or self.__relations is None:
@@ -151,6 +156,16 @@ class ExpressivELogger:
 
             self.__result_tracker.log_metrics({"avg_entity_change": float(average_entity_change)}, step=iteration)
 
+        self.__prev_entities = self.__entities
+        self.__prev_relations = self.__relations
+
+    def log_result_statistics(self, iteration):
+        if self.__relation_statistic_update_cycle == -1 or (iteration % self.__result_statistics_update_cycle) != 0:
+            return
+
+        if self.__entities is None or self.__relations is None:
+            return
+
         total_true_positives = 0  # counts number of dimensions, where positive triples are positive
         total_true_negatives = 0  # counts number of dimensions, where negative triples are negative
         total_false_positives = 0  # counts number of dimensions, where negative triples are positive
@@ -165,12 +180,13 @@ class ExpressivELogger:
             num_pos_fulfilled_triples = self.__num_fulfilled_triples(relation_pos_triples, idx)
             total_true_positives += num_pos_fulfilled_triples
             num_neg_fulfilled_triples = self.__num_fulfilled_triples(relation_neg_triples, idx)
-            total_true_negatives += num_neg_fulfilled_triples
+            total_false_positives += num_neg_fulfilled_triples
             num_neg_unfulfilled_triples = (relation_neg_triples.size()[0] * num_dims) - num_neg_fulfilled_triples
-            total_false_positives += num_neg_unfulfilled_triples
+            total_true_positives += num_neg_unfulfilled_triples
 
             if num_pos_fulfilled_triples + num_neg_fulfilled_triples > 0:
-                rel_true_positive_rate = num_pos_fulfilled_triples / (num_pos_fulfilled_triples + num_neg_fulfilled_triples)
+                rel_true_positive_rate = num_pos_fulfilled_triples / (
+                            num_pos_fulfilled_triples + num_neg_fulfilled_triples)
             else:
                 rel_true_positive_rate = 0
 
@@ -196,9 +212,6 @@ class ExpressivELogger:
             "total_sensitivity": total_sensitivity,
             "total_specificity": total_specificity
         }, step=iteration)
-
-        self.__prev_entities = self.__entities
-        self.__prev_relations = self.__relations
 
     def __generate_negative_samples(self):
         entities = np.unique(self.__triples_factory.mapped_triples[:, 0])
