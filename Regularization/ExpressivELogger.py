@@ -21,6 +21,7 @@ class ExpressivELogger:
 
     __relation_statistic_update_cycle: int
     __result_statistics_update_cycle: int
+    __max_metrics_dimension: int
     __triples_factory: TriplesFactory
     __negative_triples_factory: TriplesFactory
     __entities: torch.FloatTensor = None
@@ -28,7 +29,7 @@ class ExpressivELogger:
     __relations: torch.FloatTensor = None
     __prev_relations: torch.FloatTensor = None
 
-    def __init__(self, tan_hmap: bool, min_denom: float, tracked_rules: list, track_all_rules: bool, track_relation_params: bool, relation_statistic_update_cycle: int, result_statistics_update_cycle: int, triples_factory: TriplesFactory, result_tracker: HintOrType[ResultTracker], result_tracker_kwargs: OptionalKwargs):
+    def __init__(self, tan_hmap: bool, min_denom: float, tracked_rules: list, track_all_rules: bool, track_relation_params: bool, relation_statistic_update_cycle: int, result_statistics_update_cycle: int, max_metrics_dimension: int, triples_factory: TriplesFactory, result_tracker: HintOrType[ResultTracker], result_tracker_kwargs: OptionalKwargs):
 
         self.__tanh_map = tan_hmap
         self.__min_denom = min_denom
@@ -41,6 +42,7 @@ class ExpressivELogger:
 
         self.__relation_statistic_update_cycle = relation_statistic_update_cycle
         self.__result_statistics_update_cycle = result_statistics_update_cycle
+        self.__max_metrics_dimension = max_metrics_dimension
         self.__triples_factory = triples_factory
         self.__generate_negative_samples()
 
@@ -171,6 +173,10 @@ class ExpressivELogger:
         total_false_positives = 0  # counts number of dimensions, where negative triples are positive
         num_dims = self.__relations.size()[1] / 3
 
+        dimension_total_true_positives = np.zeros(self.__max_metrics_dimension + 1)
+        dimension_total_true_negatives = np.zeros(self.__max_metrics_dimension + 1)
+        dimension_total_false_positives = np.zeros(self.__max_metrics_dimension + 1)
+
         for idx in range(0, self.__relations.size()[0]):
             pos_mapped_triples = self.__triples_factory.mapped_triples
             relation_pos_triples = pos_mapped_triples[pos_mapped_triples[:, 1] == idx]
@@ -183,6 +189,14 @@ class ExpressivELogger:
             total_false_positives += num_neg_fulfilled_triples
             num_neg_unfulfilled_triples = (relation_neg_triples.size()[0] * num_dims) - num_neg_fulfilled_triples
             total_true_negatives += num_neg_unfulfilled_triples
+
+            if self.__max_metrics_dimension > 0:
+                for dim in range(0, self.__max_metrics_dimension):
+                    dimension_total_true_positives[dim] += self.__num_fulfilled_triples(relation_pos_triples, idx, dim)
+                    dim_num_neg_fulfilled_triples = self.__num_fulfilled_triples(relation_neg_triples, idx, dim)
+                    dimension_total_true_negatives[dim] += dim_num_neg_fulfilled_triples
+                    dim_num_neg_unfulfilled_triples = relation_neg_triples.size()[0] - dim_num_neg_fulfilled_triples
+                    dimension_total_false_positives[dim] += dim_num_neg_unfulfilled_triples
 
             if num_pos_fulfilled_triples + num_neg_fulfilled_triples > 0:
                 rel_true_positive_rate = num_pos_fulfilled_triples / (
@@ -213,6 +227,22 @@ class ExpressivELogger:
             "total_specificity": total_specificity
         }, step=iteration)
 
+        if self.__max_metrics_dimension > 0:
+            for dim in range(0, self.__max_metrics_dimension):
+                if dimension_total_true_positives[dim] + dimension_total_false_positives[dim] > 0:
+                    dim_total_true_positive_rate = dimension_total_true_positives[dim] / (dimension_total_true_positives[dim] + dimension_total_false_positives[dim])
+                else:
+                    dim_total_true_positive_rate = 0
+
+                dim_total_sensitivity = dimension_total_true_positives[dim] / self.__triples_factory.num_triples
+                dim_total_specificity = dimension_total_true_negatives[dim] / self.__triples_factory.num_triples
+
+                self.__result_tracker.log_metrics({
+                    "dim_{}_total_true_positive_rate".format(dim): dim_total_true_positive_rate,
+                    "dim_{}_sensitivity".format(dim): dim_total_sensitivity,
+                    "dim_{}_specificity".format(dim): dim_total_specificity
+                }, step=iteration)
+
     def __generate_negative_samples(self):
         entities = np.unique(self.__triples_factory.mapped_triples[:, 0])
         negative_triples: torch.LongTensor = torch.empty(self.__triples_factory.num_triples, 3, dtype=torch.long)
@@ -229,13 +259,25 @@ class ExpressivELogger:
                                                          self.__triples_factory.num_entities,
                                                          self.__triples_factory.num_relations)
 
-    def __num_fulfilled_triples(self, triples, relation) -> int:
-        h = self.__entities[triples[:, 0]]
-        t = self.__entities[triples[:, 2]]
-        d, c, s = self.__relations[relation].tensor_split(3)
+    def __num_fulfilled_triples(self, triples, relation, dimension=None) -> int:
+        if dimension is None:
+            h = self.__entities[triples[:, 0]]
+            t = self.__entities[triples[:, 2]]
+            d, c, s = self.__relations[relation].tensor_split(3)
 
-        ht = torch.cat(torch.broadcast_tensors(h, t), dim=-1)
-        th = torch.cat(torch.broadcast_tensors(t, h), dim=-1)
+            ht = torch.cat(torch.broadcast_tensors(h, t), dim=-1)
+            th = torch.cat(torch.broadcast_tensors(t, h), dim=-1)
+        else:
+            h = self.__entities[triples[:, 0]][:, dimension]
+            t = self.__entities[triples[:, 2]][:, dimension]
+
+            ht = torch.stack(torch.broadcast_tensors(h, t), dim=1)
+            th = torch.stack(torch.broadcast_tensors(t, h), dim=1)
+
+            d_h, d_t, c_h, c_t, s_h, s_t = self.__relations[relation].tensor_split(6)
+            d = torch.FloatTensor([d_h[dimension], d_t[dimension]])
+            c = torch.FloatTensor([c_h[dimension], c_t[dimension]])
+            s = torch.FloatTensor([s_h[dimension], s_t[dimension]])
 
         contextualized_pos = torch.abs(ht - c - torch.mul(s, th))
         is_entity_pair_within_para = torch.le(contextualized_pos, d)
