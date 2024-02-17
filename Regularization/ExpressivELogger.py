@@ -197,7 +197,8 @@ class ExpressivELogger:
             total_true_positives += num_pos_fulfilled_triples
             num_neg_fulfilled_triples = self.__num_fulfilled_triples(relation_neg_triples, idx)
             total_false_positives += num_neg_fulfilled_triples
-            num_neg_unfulfilled_triples = (relation_neg_triples.size()[0] * num_dims) - num_neg_fulfilled_triples
+            # * 2 because of head and tail check
+            num_neg_unfulfilled_triples = (relation_neg_triples.size()[0] * num_dims * 2) - num_neg_fulfilled_triples
             total_true_negatives += num_neg_unfulfilled_triples
 
             if self.__max_metrics_dimension > 0:
@@ -205,7 +206,7 @@ class ExpressivELogger:
                     dimension_total_true_positives[dim] += self.__num_fulfilled_triples(relation_pos_triples, idx, dim)
                     dim_num_neg_fulfilled_triples = self.__num_fulfilled_triples(relation_neg_triples, idx, dim)
                     dimension_total_false_positives[dim] += dim_num_neg_fulfilled_triples
-                    dim_num_neg_unfulfilled_triples = relation_neg_triples.size()[0] - dim_num_neg_fulfilled_triples
+                    dim_num_neg_unfulfilled_triples = relation_neg_triples.size()[0] * 2 - dim_num_neg_fulfilled_triples
                     dimension_total_true_negatives[dim] += dim_num_neg_unfulfilled_triples
 
             if num_pos_fulfilled_triples + num_neg_fulfilled_triples > 0:
@@ -214,8 +215,8 @@ class ExpressivELogger:
             else:
                 rel_true_positive_rate = 0
 
-            rel_sensitivity = num_pos_fulfilled_triples / (relation_pos_triples.size()[0] * num_dims)
-            rel_specificity = num_neg_unfulfilled_triples / (relation_neg_triples.size()[0] * num_dims)
+            rel_sensitivity = num_pos_fulfilled_triples / (relation_pos_triples.size()[0] * num_dims * 2)
+            rel_specificity = num_neg_unfulfilled_triples / (relation_neg_triples.size()[0] * num_dims * 2)
 
             self.__result_tracker.log_metrics({
                 "rel_{}_true_positive_rate".format(idx): rel_true_positive_rate,
@@ -228,8 +229,8 @@ class ExpressivELogger:
         else:
             total_true_positive_rate = 0
 
-        total_sensitivity = total_true_positives / (self.__triples_factory.num_triples * num_dims)
-        total_specificity = total_true_negatives / (self.__triples_factory.num_triples * num_dims)
+        total_sensitivity = total_true_positives / (self.__triples_factory.num_triples * num_dims * 2)
+        total_specificity = total_true_negatives / (self.__triples_factory.num_triples * num_dims * 2)
 
         self.__result_tracker.log_metrics({
             "total_true_positive_rate": total_true_positive_rate,
@@ -244,8 +245,8 @@ class ExpressivELogger:
                 else:
                     dim_total_true_positive_rate = 0
 
-                dim_total_sensitivity = dimension_total_true_positives[dim] / self.__triples_factory.num_triples
-                dim_total_specificity = dimension_total_true_negatives[dim] / self.__triples_factory.num_triples
+                dim_total_sensitivity = dimension_total_true_positives[dim] / (self.__triples_factory.num_triples * 2)
+                dim_total_specificity = dimension_total_true_negatives[dim] / (self.__triples_factory.num_triples * 2)
 
                 self.__result_tracker.log_metrics({
                     "dim_{}_total_true_positive_rate".format(dim): dim_total_true_positive_rate,
