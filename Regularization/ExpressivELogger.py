@@ -300,9 +300,9 @@ class ExpressivELogger:
             th = torch.stack(torch.broadcast_tensors(t, h), dim=1)
 
             d_h, d_t, c_h, c_t, s_h, s_t = self.__relations[relation].tensor_split(6)
-            d = torch.FloatTensor([d_h[dimension], d_t[dimension]])
-            c = torch.FloatTensor([c_h[dimension], c_t[dimension]])
-            s = torch.FloatTensor([s_h[dimension], s_t[dimension]])
+            d = torch.FloatTensor([d_h[dimension], d_t[dimension]], device=d_h.device)
+            c = torch.FloatTensor([c_h[dimension], c_t[dimension]], device=c_h.device)
+            s = torch.FloatTensor([s_h[dimension], s_t[dimension]], device=s_h.device)
 
         contextualized_pos = torch.abs(ht - c - torch.mul(s, th))
         is_entity_pair_within_para = torch.le(contextualized_pos, d)
