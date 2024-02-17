@@ -99,6 +99,7 @@ class ExpressivELogger:
             total_distance_change_tail = 0
             total_center_change_head = 0
             total_center_change_tail = 0
+            total_corner_point_change = 0
 
             for idx in range(0, self.__prev_relations.size()[0]):
                 relation = self.__relations[idx]
@@ -134,13 +135,21 @@ class ExpressivELogger:
                 average_center_change_tail = torch.mean(abs_center_change_tail)
                 total_center_change_tail += float(average_center_change_tail)
 
+                current_corner_points = self.__calculate_corner_points(r_d_h, r_d_t, r_c_h, r_c_t, r_s_h, r_s_t)
+                prev_corner_points = self.__calculate_corner_points(pr_d_h, pr_d_t, pr_c_h, pr_c_t, pr_s_h, pr_s_t)
+                corner_point_change = prev_corner_points - current_corner_points
+                abs_corner_point_change = torch.abs(corner_point_change)
+                average_corner_point_change = torch.mean(abs_corner_point_change)
+                total_corner_point_change += average_corner_point_change
+
                 self.__result_tracker.log_metrics({
                     "rel_{}_slope_change_head".format(idx): average_slope_change_head,
                     "rel_{}_slope_change_tail".format(idx): average_slope_change_tail,
                     "rel_{}_distance_change_head".format(idx): average_distance_change_head,
                     "rel_{}_distance_change_tail".format(idx): average_distance_change_tail,
                     "rel_{}_center_change_head".format(idx): average_center_change_head,
-                    "rel_{}_center_change_tail".format(idx): average_center_change_tail
+                    "rel_{}_center_change_tail".format(idx): average_center_change_tail,
+                    "rel_{}_corner_point_change".format(idx): average_corner_point_change
                 }, step=iteration)
 
             self.__result_tracker.log_metrics({
@@ -149,7 +158,8 @@ class ExpressivELogger:
                 "total_distance_change_head": total_distance_change_head,
                 "total_distance_change_tail": total_distance_change_tail,
                 "total_center_change_head": total_center_change_head,
-                "total_center_change_tail": total_center_change_tail
+                "total_center_change_tail": total_center_change_tail,
+                "total_corner_point_change": total_corner_point_change
             }, step=iteration)
 
             entity_change = self.__prev_entities - self.__entities
@@ -258,6 +268,21 @@ class ExpressivELogger:
                                                          self.__triples_factory.metadata,
                                                          self.__triples_factory.num_entities,
                                                          self.__triples_factory.num_relations)
+
+    def __calculate_corner_points(self, d_h, d_t, c_h, c_t, s_h, s_t):
+        corner1_x = c_h + d_h + s_t * c_t + s_t * d_t / (1 - s_t * s_h)  # +,+
+        corner1_y = c_t + d_t + s_h * corner1_x
+
+        corner2_x = c_h + d_h + s_t * c_t - s_t * d_t / (1 - s_t * s_h)  # +,-
+        corner2_y = c_t - d_t + s_h * corner2_x
+
+        corner3_x = c_h - d_h + s_t * c_t + s_t * d_t / (1 - s_t * s_h)  # -,+
+        corner3_y = c_t + d_t + s_h * corner3_x
+
+        corner4_x = c_h - d_h + s_t * c_t - s_t * d_t / (1 - s_t * s_h)  # -,-
+        corner4_y = c_t - d_t + s_h * corner4_x
+
+        return torch.stack([corner1_x, corner1_y, corner2_x, corner2_y, corner3_x, corner3_y, corner4_x, corner4_y])
 
     def __num_fulfilled_triples(self, triples, relation, dimension=None) -> int:
         if dimension is None:
