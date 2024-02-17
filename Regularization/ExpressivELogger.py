@@ -227,4 +227,4 @@ class ExpressivELogger:
         contextualized_pos = torch.abs(ht - c - torch.mul(s, th))
         is_entity_pair_within_para = torch.le(contextualized_pos, d)
 
-        return torch.count_nonzero(is_entity_pair_within_para)
+        return int(torch.count_nonzero(is_entity_pair_within_para))

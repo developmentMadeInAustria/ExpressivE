@@ -78,7 +78,7 @@ class ExpressivERegularizer(Regularizer):
             tracked_rules=None,
             track_all_rules: bool = False,
             track_relation_params: bool = False,
-            track_relation_statistic_update_cycle: int = 170,
+            track_relation_statistic_update_cycle: int = -1,
             result_tracker: HintOrType[ResultTracker] = None,
             result_tracker_kwargs: OptionalKwargs = None,
             **kwargs
