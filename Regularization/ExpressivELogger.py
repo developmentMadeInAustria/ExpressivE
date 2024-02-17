@@ -204,9 +204,9 @@ class ExpressivELogger:
                 for dim in range(0, self.__max_metrics_dimension):
                     dimension_total_true_positives[dim] += self.__num_fulfilled_triples(relation_pos_triples, idx, dim)
                     dim_num_neg_fulfilled_triples = self.__num_fulfilled_triples(relation_neg_triples, idx, dim)
-                    dimension_total_true_negatives[dim] += dim_num_neg_fulfilled_triples
+                    dimension_total_false_positives[dim] += dim_num_neg_fulfilled_triples
                     dim_num_neg_unfulfilled_triples = relation_neg_triples.size()[0] - dim_num_neg_fulfilled_triples
-                    dimension_total_false_positives[dim] += dim_num_neg_unfulfilled_triples
+                    dimension_total_true_negatives[dim] += dim_num_neg_unfulfilled_triples
 
             if num_pos_fulfilled_triples + num_neg_fulfilled_triples > 0:
                 rel_true_positive_rate = num_pos_fulfilled_triples / (
