@@ -83,8 +83,8 @@ class ExpressivELogger:
     def log_entity_relation_statistics(self, iteration):
         if self.__relation_statistic_update_cycle == -1 or (iteration % self.__relation_statistic_update_cycle) != 0:
             if self.__prev_entities is None or self.__prev_relations is None:
-                self.__prev_entities = self.__entities
-                self.__prev_relations = self.__relations
+                self.__prev_entities = self.__entities.clone()
+                self.__prev_relations = self.__relations.clone()
             return
 
         if self.__entities is None or self.__relations is None:
@@ -156,8 +156,8 @@ class ExpressivELogger:
 
             self.__result_tracker.log_metrics({"avg_entity_change": float(average_entity_change)}, step=iteration)
 
-        self.__prev_entities = self.__entities
-        self.__prev_relations = self.__relations
+        self.__prev_entities = self.__entities.clone()
+        self.__prev_relations = self.__relations.clone()
 
     def log_result_statistics(self, iteration):
         if self.__relation_statistic_update_cycle == -1 or (iteration % self.__result_statistics_update_cycle) != 0:
@@ -182,7 +182,7 @@ class ExpressivELogger:
             num_neg_fulfilled_triples = self.__num_fulfilled_triples(relation_neg_triples, idx)
             total_false_positives += num_neg_fulfilled_triples
             num_neg_unfulfilled_triples = (relation_neg_triples.size()[0] * num_dims) - num_neg_fulfilled_triples
-            total_true_positives += num_neg_unfulfilled_triples
+            total_true_negatives += num_neg_unfulfilled_triples
 
             if num_pos_fulfilled_triples + num_neg_fulfilled_triples > 0:
                 rel_true_positive_rate = num_pos_fulfilled_triples / (
