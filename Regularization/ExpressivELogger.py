@@ -101,6 +101,10 @@ class ExpressivELogger:
             total_center_change_tail = 0
             total_corner_point_change = 0
 
+            total_diam1 = 0
+            total_diam2 = 0
+            total_area = 0
+
             for idx in range(0, self.__prev_relations.size()[0]):
                 relation = self.__relations[idx]
                 prev_relation = self.__prev_relations[idx]
@@ -142,6 +146,18 @@ class ExpressivELogger:
                 average_corner_point_change = torch.mean(abs_corner_point_change)
                 total_corner_point_change += average_corner_point_change
 
+                rel_diam1, rel_diam2, rel_area = self.__calculate_diameters_and_area(current_corner_points[0],
+                                                                                     current_corner_points[1],
+                                                                                     current_corner_points[2],
+                                                                                     current_corner_points[3],
+                                                                                     current_corner_points[4],
+                                                                                     current_corner_points[5],
+                                                                                     current_corner_points[6],
+                                                                                     current_corner_points[7])
+                total_diam1 += rel_diam1
+                total_diam2 += rel_diam2
+                total_area += rel_area
+
                 self.__result_tracker.log_metrics({
                     "rel_{}_slope_change_head".format(idx): average_slope_change_head,
                     "rel_{}_slope_change_tail".format(idx): average_slope_change_tail,
@@ -149,7 +165,10 @@ class ExpressivELogger:
                     "rel_{}_distance_change_tail".format(idx): average_distance_change_tail,
                     "rel_{}_center_change_head".format(idx): average_center_change_head,
                     "rel_{}_center_change_tail".format(idx): average_center_change_tail,
-                    "rel_{}_corner_point_change".format(idx): average_corner_point_change
+                    "rel_{}_corner_point_change".format(idx): average_corner_point_change,
+                    "rel_{}_diam1".format(idx): rel_diam1,
+                    "rel_{}_diam2".format(idx): rel_diam2,
+                    "rel_{}_area".format(idx): rel_area
                 }, step=iteration)
 
             self.__result_tracker.log_metrics({
@@ -160,6 +179,9 @@ class ExpressivELogger:
                 "total_center_change_head": total_center_change_head,
                 "total_center_change_tail": total_center_change_tail,
                 "total_corner_point_change": total_corner_point_change
+                "total_diam1": total_diam1,
+                "total_diam2": total_diam2,
+                "total_area": total_area
             }, step=iteration)
 
             entity_change = self.__prev_entities - self.__entities
@@ -284,6 +306,20 @@ class ExpressivELogger:
         corner4_y = c_t - d_t + s_h * corner4_x
 
         return torch.stack([corner1_x, corner1_y, corner2_x, corner2_y, corner3_x, corner3_y, corner4_x, corner4_y])
+
+    def __calculate_diameters_and_area(self, corner1_x, corner1_y, corner2_x, corner2_y, corner3_x, corner3_y, corner4_x, corner4_y) -> (float, float, float):
+        # opposite corners: 1 & 4, 2 & 3
+
+        # calculate side lengths of parallelogram
+        a = torch.sqrt(torch.pow(corner1_x - corner2_x, 2) + torch.pow(corner1_y - corner2_y, 2))
+        b = torch.sqrt(torch.pow(corner1_x - corner3_x, 2) + torch.pow(corner1_y - corner3_y, 2))
+
+        # calculate diameters
+        diam1 = torch.sqrt(torch.pow(corner2_x - corner3_x, 2) + torch.pow(corner2_y - corner3_y, 2))
+        diam2 = torch.sqrt(torch.pow(corner1_x - corner4_x, 2) + torch.pow(corner1_y - corner4_y, 2))
+
+        area = 2 * (0.25 * torch.sqrt((a + b + diam1) * (-a + b + diam1) * (a - b + diam1) * (a + b - diam1)))
+        return torch.mean(diam1), torch.mean(diam2), torch.mean(area)
 
     def __num_fulfilled_triples(self, triples, relation, dimension=None) -> int:
         if dimension is None:
