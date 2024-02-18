@@ -178,7 +178,7 @@ class ExpressivELogger:
                 "total_distance_change_tail": total_distance_change_tail,
                 "total_center_change_head": total_center_change_head,
                 "total_center_change_tail": total_center_change_tail,
-                "total_corner_point_change": total_corner_point_change
+                "total_corner_point_change": total_corner_point_change,
                 "total_diam1": total_diam1,
                 "total_diam2": total_diam2,
                 "total_area": total_area
