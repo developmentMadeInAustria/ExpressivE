@@ -318,7 +318,9 @@ class ExpressivELogger:
         diam1 = torch.sqrt(torch.pow(corner2_x - corner3_x, 2) + torch.pow(corner2_y - corner3_y, 2))
         diam2 = torch.sqrt(torch.pow(corner1_x - corner4_x, 2) + torch.pow(corner1_y - corner4_y, 2))
 
-        area = 2 * (0.25 * torch.sqrt((a + b + diam1) * (-a + b + diam1) * (a - b + diam1) * (a + b - diam1)))
+        # Heron's formula for area
+        semi_perimeter = (a + b + diam1) / 2
+        area = 2 * torch.sqrt(semi_perimeter * (semi_perimeter - a) * (semi_perimeter - b) * (semi_perimeter - diam1))
         return torch.mean(diam1), torch.mean(diam2), torch.mean(area)
 
     def __num_fulfilled_triples(self, triples, relation, dimension=None) -> int:
