@@ -41,7 +41,8 @@
     "tracked_rules": [0,3,16,21,22,162,179,387,3579,7684,12213,26082,28982,33498,39640,46266,52339,54148,62495,67099],
     "track_relation_statistic_update_cycle": 170,
     "track_result_statistics_update_cycle": 170,
-    "track_max_metrics_dimension": 50
+    "track_max_metrics_dimension": 50,
+    "track_full_rule_loss_cycle": 1700
   },
   "training_loop": "SLCWATrainingLoop",
   "negative_sampler": "BasicNegativeSampler",

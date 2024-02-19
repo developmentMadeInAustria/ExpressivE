@@ -38,6 +38,9 @@ class ExpressivERegularizer(Regularizer):
 
     __lr_scheduler: ExpressivELRScheduler
     __track_only: bool
+    __track_full_rule_loss_cycle: int
+    __track_full_rule_loss_var_path: str
+    __track_full_rule_loss_const_path: str
     __logger: ExpressivELogger
 
     __device: torch.device
@@ -81,6 +84,9 @@ class ExpressivERegularizer(Regularizer):
             track_relation_statistic_update_cycle: int = 1,
             track_result_statistics_update_cycle: int = 1,
             track_max_metrics_dimension: int = -1,
+            track_full_rule_loss_cycle: int = -1,
+            track_full_rule_loss_var_path: str = "./Benchmarking/logs/var_rules_losses.csv",
+            track_full_rule_loss_const_path: str = "./Benchmarking/logs/const_rules_losses.csv",
             result_tracker: HintOrType[ResultTracker] = None,
             result_tracker_kwargs: OptionalKwargs = None,
             **kwargs
@@ -132,6 +138,9 @@ class ExpressivERegularizer(Regularizer):
         self.__min_denom = min_denom
 
         self.__track_only = track_only
+        self.__track_full_rule_loss_cycle = track_full_rule_loss_cycle
+        self.__track_full_rule_loss_var_path = track_full_rule_loss_var_path
+        self.__track_full_rule_loss_const_path = track_full_rule_loss_const_path
 
         if torch.cuda.is_available():
             # pykeen is optimized for single gpu usage
@@ -263,6 +272,7 @@ class ExpressivERegularizer(Regularizer):
         alpha = self.__lr_scheduler.alpha()
         const_body_satisfaction_percentage = const_intersections / float(len(const_rules) * relation_dim)
 
+        self.__track_all_rule_losses(x, self.__iteration)
         self.__logger.log_weights(x, self.__iteration)
         self.__logger.log_alpha(alpha, self.__iteration)
         self.__logger.log_const_body_satisfaction(const_body_satisfaction_percentage, self.__iteration)
@@ -362,6 +372,22 @@ class ExpressivERegularizer(Regularizer):
             return y_result.group(0)[1:-1]
 
         raise ValueError("Didn't detect constant in atom!")
+
+    def __track_all_rule_losses(self, relations, iteration):
+        if self.__iteration % self.__track_full_rule_loss_cycle == 0:
+            self.__var_rules['rule_loss_{}'.format(iteration)] = np.nan
+            for idx, row in self.__var_rules.iterrows():
+                rule_loss = self.__compute_loss(row, relations)
+                self.__var_rules.loc['rule_loss_{}'.format(iteration), idx] = rule_loss.item()
+
+            self.__const_rules['rule_loss_{}'.format(iteration)] = np.nan
+            for idx, row in self.__const_rules.iterrows():
+                intersections, mask = self.__compute_const_relation_intersections(row, self.__entity_weights, relations)
+                rule_loss = self.__compute_const_loss(row, intersections, mask, self.__entity_weights, relations)
+                self.__const_rules.loc['rule_loss_{}'.format(iteration), idx] = rule_loss.item()
+
+            self.__var_rules.to_csv(self.__track_full_rule_loss_var_path)
+            self.__const_rules.to_csv(self.__track_full_rule_loss_const_path)
 
     # noinspection PyTypeChecker
     def __compute_const_relation_intersections(self, rule, entities, relations) -> (torch.FloatTensor, torch.FloatTensor):
