@@ -375,19 +375,18 @@ class ExpressivERegularizer(Regularizer):
 
     def __track_all_rule_losses(self, relations, iteration):
         if self.__iteration % self.__track_full_rule_loss_cycle == 0:
-            self.__var_rules['rule_loss_{}'.format(iteration)] = np.nan
-            for idx, row in self.__var_rules.iterrows():
-                rule_loss = self.__compute_loss(row, relations)
-                self.__var_rules.loc['rule_loss_{}'.format(iteration), idx] = rule_loss.item()
+            self.__var_rules['rule_loss_{}'.format(iteration)] = (
+                self.__var_rules.apply(lambda row: self.__compute_loss(row, relations).item(), axis=1))
 
-            self.__const_rules['rule_loss_{}'.format(iteration)] = np.nan
-            for idx, row in self.__const_rules.iterrows():
-                intersections, mask = self.__compute_const_relation_intersections(row, self.__entity_weights, relations)
-                rule_loss = self.__compute_const_loss(row, intersections, mask, self.__entity_weights, relations)
-                self.__const_rules.loc['rule_loss_{}'.format(iteration), idx] = rule_loss.item()
+            self.__const_rules['rule_loss_{}'.format(iteration)] = (
+                self.__const_rules.apply(lambda row: self.__tracking_const_loss(row, relations).item(), axis=1))
 
             self.__var_rules.to_csv(self.__track_full_rule_loss_var_path)
             self.__const_rules.to_csv(self.__track_full_rule_loss_const_path)
+
+    def __tracking_const_loss(self, row, relations):
+        intersections, mask = self.__compute_const_relation_intersections(row, self.__entity_weights, relations)
+        return self.__compute_const_loss(row, intersections, mask, self.__entity_weights, relations)
 
     # noinspection PyTypeChecker
     def __compute_const_relation_intersections(self, rule, entities, relations) -> (torch.FloatTensor, torch.FloatTensor):
