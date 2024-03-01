@@ -320,7 +320,7 @@ class ExpressivELogger:
 
         # calculate side lengths of parallelogram
         a = torch.sqrt(torch.pow(corner1_x - corner2_x, 2) + torch.pow(corner1_y - corner2_y, 2))
-        b = torch.sqrt(torch.pow(corner1_x - corner3_x, 2) + torch.pow(corner1_y - corner3_y, 2))
+        b = torch.sqrt(torch.pow(corner2_x - corner3_x, 2) + torch.pow(corner2_y - corner3_y, 2))
 
         # calculate diameters
         diam1 = torch.sqrt(torch.pow(corner1_x - corner3_x, 2) + torch.pow(corner1_y - corner3_y, 2))
