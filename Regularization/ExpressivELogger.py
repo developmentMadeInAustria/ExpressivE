@@ -293,30 +293,38 @@ class ExpressivELogger:
                                                          self.__triples_factory.num_relations)
 
     def __calculate_corner_points(self, d_h, d_t, c_h, c_t, s_h, s_t):
-        corner1_x = c_h + d_h + s_t * c_t + s_t * d_t / (1 - s_t * s_h)  # +,+
+        # How to calculate corner points?
+        # Calculate intersection of lines
+        # Example Corner 1 (see also GeoGebra):
+        # y = c_t + d_t + x * s_h
+        # x = c_h + d_h + y * s_t
+        # Then, only change sign of d_t and d_h
+        # Note, corners go round in a circle (from 1-4)
+
+        corner1_x = (c_h + d_h + s_t * c_t + s_t * d_t) / (1 - s_t * s_h)  # + d_h, + d_t
         corner1_y = c_t + d_t + s_h * corner1_x
 
-        corner2_x = c_h + d_h + s_t * c_t - s_t * d_t / (1 - s_t * s_h)  # +,-
+        corner2_x = (c_h + d_h + s_t * c_t - s_t * d_t) / (1 - s_t * s_h)  # + d_h, - d_t
         corner2_y = c_t - d_t + s_h * corner2_x
 
-        corner3_x = c_h - d_h + s_t * c_t + s_t * d_t / (1 - s_t * s_h)  # -,+
-        corner3_y = c_t + d_t + s_h * corner3_x
+        corner3_x = (c_h - d_h + s_t * c_t - s_t * d_t) / (1 - s_t * s_h)  # - d_h, - d_t
+        corner3_y = c_t - d_t + s_h * corner3_x
 
-        corner4_x = c_h - d_h + s_t * c_t - s_t * d_t / (1 - s_t * s_h)  # -,-
-        corner4_y = c_t - d_t + s_h * corner4_x
+        corner4_x = (c_h - d_h + s_t * c_t + s_t * d_t) / (1 - s_t * s_h)  # - d_h, + d_t
+        corner4_y = c_t + d_t + s_h * corner4_x
 
         return torch.stack([corner1_x, corner1_y, corner2_x, corner2_y, corner3_x, corner3_y, corner4_x, corner4_y])
 
     def __calculate_diameters_and_area(self, corner1_x, corner1_y, corner2_x, corner2_y, corner3_x, corner3_y, corner4_x, corner4_y) -> (float, float, float):
-        # opposite corners: 1 & 4, 2 & 3
+        # opposite corners: 1 & 3, 2 & 4
 
         # calculate side lengths of parallelogram
         a = torch.sqrt(torch.pow(corner1_x - corner2_x, 2) + torch.pow(corner1_y - corner2_y, 2))
         b = torch.sqrt(torch.pow(corner1_x - corner3_x, 2) + torch.pow(corner1_y - corner3_y, 2))
 
         # calculate diameters
-        diam1 = torch.sqrt(torch.pow(corner2_x - corner3_x, 2) + torch.pow(corner2_y - corner3_y, 2))
-        diam2 = torch.sqrt(torch.pow(corner1_x - corner4_x, 2) + torch.pow(corner1_y - corner4_y, 2))
+        diam1 = torch.sqrt(torch.pow(corner1_x - corner3_x, 2) + torch.pow(corner1_y - corner3_y, 2))
+        diam2 = torch.sqrt(torch.pow(corner2_x - corner4_x, 2) + torch.pow(corner2_y - corner4_y, 2))
 
         # Heron's formula for area
         semi_perimeter = (a + b + diam1) / 2
