@@ -38,6 +38,8 @@
     "var_batch_size": 12,
     "const_batch_size": 48,
     "sampling_strategy": "weighted",
+    "min_denom": 0,
+    "p": 2,
     "tracked_rules": [0,3,16,21,22,162,179,387,3579,7684,12213,26082,28982,33498,39640,46266,52339,54148,62495,67099],
     "track_relation_statistic_update_cycle": 170,
     "track_result_statistics_update_cycle": 170,

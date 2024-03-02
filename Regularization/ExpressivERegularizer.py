@@ -33,6 +33,7 @@ class ExpressivERegularizer(Regularizer):
     __apply_rule_confidence: bool
     __tanh_map: bool
     __min_denom: float
+    __p: int
 
     __iteration: int = 0
 
@@ -77,14 +78,15 @@ class ExpressivERegularizer(Regularizer):
             apply_rule_confidence = False,
             tanh_map: bool = True,
             min_denom: float = 0.5,
+            p: int = 2,
             track_only=False,
             tracked_rules=None,
             track_all_rules: bool = False,
             track_relation_params: bool = False,
-            track_relation_statistic_update_cycle: int = 1,
-            track_result_statistics_update_cycle: int = 1,
             track_max_metrics_dimension: int = -1,
             track_full_rule_loss_cycle: int = -1,
+            track_relation_statistic_update_cycle: int = -1,
+            track_result_statistics_update_cycle: int = -1,
             track_full_rule_loss_var_path: str = "./Benchmarking/logs/var_rules_losses.csv",
             track_full_rule_loss_const_path: str = "./Benchmarking/logs/const_rules_losses.csv",
             result_tracker: HintOrType[ResultTracker] = None,
@@ -136,6 +138,7 @@ class ExpressivERegularizer(Regularizer):
         self.__apply_rule_confidence = apply_rule_confidence
         self.__tanh_map = tanh_map
         self.__min_denom = min_denom
+        self.__p = p
 
         self.__track_only = track_only
         self.__track_full_rule_loss_cycle = track_full_rule_loss_cycle
@@ -160,7 +163,7 @@ class ExpressivERegularizer(Regularizer):
         # noinspection PyTypeChecker
         self.__factory: TriplesFactory = dataset.training
 
-        self.__logger = ExpressivELogger(tanh_map, min_denom, tracked_rules, track_all_rules, track_relation_params,
+        self.__logger = ExpressivELogger(tanh_map, min_denom, p, tracked_rules, track_all_rules, track_relation_params,
                                          track_relation_statistic_update_cycle, track_result_statistics_update_cycle,
                                          track_max_metrics_dimension, self.__factory,
                                          result_tracker, result_tracker_kwargs)
@@ -638,6 +641,12 @@ class ExpressivERegularizer(Regularizer):
         d2_h, d2_t, c2_h, c2_t, s2_h, s2_t = rel_2
 
         ones = torch.ones(corner_x.size(), device=self.__device)
+
+        # Note: To correctly model (r_1 and r_2 => r_3), we should check, if the corner points of the convex region
+        # are in r_3 / or that the corners of r_3 are outside of the inequalities
+        # For the first point, we need the corners of the convex region (complex)
+        # For the second, we have the problem that the complete r_3 could be outside of the convex region and r_3 is
+        # no superset 
 
         # TODO: Discuss aggregation function.
         # E.g.: Use dimension-wise maximum or sum

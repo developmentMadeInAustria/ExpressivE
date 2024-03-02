@@ -14,6 +14,7 @@ class ExpressivELogger:
 
     __tanh_map: bool
     __min_denom: float
+    __p: int
     __tracked_rules: [int]
     __track_all_rules: bool
     __track_relation_params: bool
@@ -29,10 +30,11 @@ class ExpressivELogger:
     __relations: torch.FloatTensor = None
     __prev_relations: torch.FloatTensor = None
 
-    def __init__(self, tan_hmap: bool, min_denom: float, tracked_rules: list, track_all_rules: bool, track_relation_params: bool, relation_statistic_update_cycle: int, result_statistics_update_cycle: int, max_metrics_dimension: int, triples_factory: TriplesFactory, result_tracker: HintOrType[ResultTracker], result_tracker_kwargs: OptionalKwargs):
+    def __init__(self, tan_hmap: bool, min_denom: float, p: int, tracked_rules: list, track_all_rules: bool, track_relation_params: bool, relation_statistic_update_cycle: int, result_statistics_update_cycle: int, max_metrics_dimension: int, triples_factory: TriplesFactory, result_tracker: HintOrType[ResultTracker], result_tracker_kwargs: OptionalKwargs):
 
         self.__tanh_map = tan_hmap
         self.__min_denom = min_denom
+        self.__p = p
 
         self.__tracked_rules = tracked_rules
         if self.__tracked_rules is None:
@@ -203,11 +205,15 @@ class ExpressivELogger:
         total_true_positives = 0  # counts number of dimensions, where positive triples are positive
         total_true_negatives = 0  # counts number of dimensions, where negative triples are negative
         total_false_positives = 0  # counts number of dimensions, where negative triples are positive
+        mean_true_score = 0  # the mean score of true triples
+        mean_false_score = 0  # the mean score false triples
         num_dims = self.__relations.size()[1] / 3
 
         dimension_total_true_positives = np.zeros(self.__max_metrics_dimension + 1)
         dimension_total_true_negatives = np.zeros(self.__max_metrics_dimension + 1)
         dimension_total_false_positives = np.zeros(self.__max_metrics_dimension + 1)
+        dimension_mean_true_score = np.zeros(self.__max_metrics_dimension + 1)
+        dimension_mean_false_score = np.zeros(self.__max_metrics_dimension + 1)
 
         for idx in range(0, self.__relations.size()[0]):
             pos_mapped_triples = self.__triples_factory.mapped_triples
@@ -215,19 +221,24 @@ class ExpressivELogger:
             neg_mapped_triples = self.__negative_triples_factory.mapped_triples
             relation_neg_triples = neg_mapped_triples[neg_mapped_triples[:, 1] == idx]
 
-            num_pos_fulfilled_triples = self.__num_fulfilled_triples(relation_pos_triples, idx)
+            num_pos_fulfilled_triples, pos_triples_score = self.__num_fulfilled_triples(relation_pos_triples, idx)
             total_true_positives += num_pos_fulfilled_triples
-            num_neg_fulfilled_triples = self.__num_fulfilled_triples(relation_neg_triples, idx)
+            mean_true_score += pos_triples_score * relation_pos_triples.size()[0] / pos_mapped_triples.size()[0]
+            num_neg_fulfilled_triples, neg_triples_score = self.__num_fulfilled_triples(relation_neg_triples, idx)
             total_false_positives += num_neg_fulfilled_triples
+            mean_false_score += neg_triples_score * relation_neg_triples.size()[0] / neg_mapped_triples.size()[0]
             # * 2 because of head and tail check
             num_neg_unfulfilled_triples = (relation_neg_triples.size()[0] * num_dims * 2) - num_neg_fulfilled_triples
             total_true_negatives += num_neg_unfulfilled_triples
 
             if self.__max_metrics_dimension > 0:
                 for dim in range(0, self.__max_metrics_dimension):
-                    dimension_total_true_positives[dim] += self.__num_fulfilled_triples(relation_pos_triples, idx, dim)
-                    dim_num_neg_fulfilled_triples = self.__num_fulfilled_triples(relation_neg_triples, idx, dim)
+                    dim_num_pos_fulfilled_triples, dim_pos_score = self.__num_fulfilled_triples(relation_pos_triples, idx, dim)
+                    dimension_total_true_positives[dim] += dim_num_pos_fulfilled_triples
+                    dimension_mean_true_score[dim] += dim_pos_score * relation_pos_triples.size()[0] / pos_mapped_triples.size()[0]
+                    dim_num_neg_fulfilled_triples, dim_neg_score = self.__num_fulfilled_triples(relation_neg_triples, idx, dim)
                     dimension_total_false_positives[dim] += dim_num_neg_fulfilled_triples
+                    dimension_mean_false_score[dim] += dim_neg_score * relation_neg_triples.size()[0] / neg_mapped_triples.size()[0]
                     dim_num_neg_unfulfilled_triples = relation_neg_triples.size()[0] * 2 - dim_num_neg_fulfilled_triples
                     dimension_total_true_negatives[dim] += dim_num_neg_unfulfilled_triples
 
@@ -243,7 +254,10 @@ class ExpressivELogger:
             self.__result_tracker.log_metrics({
                 "rel_{}_true_positive_rate".format(idx): rel_true_positive_rate,
                 "rel_{}_sensitivity".format(idx): rel_sensitivity,
-                "rel_{}_specificity".format(idx): rel_specificity
+                "rel_{}_specificity".format(idx): rel_specificity,
+                "rel_{}_pos_score".format(idx): pos_triples_score,
+                "rel_{}_neg_score".format(idx): neg_triples_score,
+                "rel_{}_pos_neg_score_diff".format(idx): pos_triples_score - neg_triples_score
             }, step=iteration)
 
         if total_true_positives + total_false_positives > 0:
@@ -257,7 +271,10 @@ class ExpressivELogger:
         self.__result_tracker.log_metrics({
             "total_true_positive_rate": total_true_positive_rate,
             "total_sensitivity": total_sensitivity,
-            "total_specificity": total_specificity
+            "total_specificity": total_specificity,
+            "total_mean_pos_score": mean_true_score,
+            "total_mean_neg_score": mean_false_score,
+            "total_mean_score_diff": mean_true_score - mean_false_score
         }, step=iteration)
 
         if self.__max_metrics_dimension > 0:
@@ -273,7 +290,10 @@ class ExpressivELogger:
                 self.__result_tracker.log_metrics({
                     "dim_{}_total_true_positive_rate".format(dim): dim_total_true_positive_rate,
                     "dim_{}_sensitivity".format(dim): dim_total_sensitivity,
-                    "dim_{}_specificity".format(dim): dim_total_specificity
+                    "dim_{}_specificity".format(dim): dim_total_specificity,
+                    "dim_{}_mean_pos_score".format(dim): dimension_mean_true_score[dim],
+                    "dim_{}_mean_neg_score".format(dim): dimension_mean_false_score[dim],
+                    "dim_{}_mean_score_diff".format(dim): dimension_mean_true_score[dim] - dimension_mean_false_score[dim]
                 }, step=iteration)
 
     def __generate_negative_samples(self):
@@ -331,7 +351,7 @@ class ExpressivELogger:
         area = 2 * torch.sqrt(semi_perimeter * (semi_perimeter - a) * (semi_perimeter - b) * (semi_perimeter - diam1))
         return torch.mean(diam1), torch.mean(diam2), torch.mean(area)
 
-    def __num_fulfilled_triples(self, triples, relation, dimension=None) -> int:
+    def __num_fulfilled_triples(self, triples, relation, dimension=None) -> (int, any):
         if dimension is None:
             h = self.__entities[triples[:, 0]]
             t = self.__entities[triples[:, 2]]
@@ -354,4 +374,14 @@ class ExpressivELogger:
         contextualized_pos = torch.abs(ht - c - torch.mul(s, th))
         is_entity_pair_within_para = torch.le(contextualized_pos, d)
 
-        return int(torch.count_nonzero(is_entity_pair_within_para))
+        w = 2 * d + 1
+
+        k = torch.mul(0.5 * (w - 1), (w - 1 / w))
+        dist = torch.mul(contextualized_pos, w) - k
+
+        dist[is_entity_pair_within_para] = torch.div(contextualized_pos, w)[is_entity_pair_within_para]
+
+        num_fulfilled_triples = int(torch.count_nonzero(is_entity_pair_within_para))
+        score = torch.mean(-dist.norm(p=self.__p, dim=-1))
+
+        return num_fulfilled_triples, score
