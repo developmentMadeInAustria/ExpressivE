@@ -183,7 +183,7 @@ def main(**kwargs):
                 use_testing_data=True,
                 device=config['device'],
                 random_seed=seed,
-            )
+            ).save_to_directory(experiment_dir + '/results' + sub_dir_seed)
 
     if test:
         evaluate_and_save_final_result(seeds, res, experiment_dir, config_path, sub_dir)
