@@ -252,14 +252,20 @@ class ExpressivERegularizer(Regularizer):
             self.__logger.log_rule(idx, rule_loss, self.__iteration)
 
         relation_dim = x.size()[1] / 6
-        const_intersections = 0.0
+        const_body_intersections = 0.0
+        const_head_intersections = 0.0
+        const_head_and_body_intersections = 0.0
         for idx, row in const_rules.iterrows():
             # use iterrows() as apply() + sum() throws error:
             # "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
 
-            intersections, mask = self.__compute_const_relation_intersections(row, self.__entity_weights, x)
+            intersections, mask = self.__compute_const_body_relation_intersections(row, self.__entity_weights, x)
             # Generally, we either have 2 or 0 intersections per dimension
-            const_intersections += float(torch.count_nonzero(mask)) / 2
+            const_body_intersections += float(torch.count_nonzero(mask)) / 2
+
+            head_intersections, head_mask = self.__compute_const_head_relation_intersections(row, self.__entity_weights, x)
+            const_head_intersections += float(torch.count_nonzero(head_mask)) / 2
+            const_head_and_body_intersections += float(torch.count_nonzero(torch.logical_and(mask, head_mask))) / 2
 
             rule_multiplier = row['confidence'] if self.__apply_rule_confidence else 1.0
             rule_loss = rule_multiplier * self.__compute_const_loss(row, intersections, mask,
@@ -273,12 +279,16 @@ class ExpressivERegularizer(Regularizer):
             self.__logger.log_rule(idx, rule_loss, self.__iteration)
 
         alpha = self.__lr_scheduler.alpha()
-        const_body_satisfaction_percentage = const_intersections / float(len(const_rules) * relation_dim)
+        const_body_satisfaction_percentage = const_body_intersections / float(len(const_rules) * relation_dim)
+        const_head_satisfaction_percentage = const_head_intersections / float(len(const_rules) * relation_dim)
+        const_head_per_body_satisfaction = const_head_and_body_intersections / const_body_intersections
 
         self.__track_all_rule_losses(x, self.__iteration)
         self.__logger.log_weights(x, self.__iteration)
         self.__logger.log_alpha(alpha, self.__iteration)
         self.__logger.log_const_body_satisfaction(const_body_satisfaction_percentage, self.__iteration)
+        self.__logger.log_const_head_satisfaction(const_head_satisfaction_percentage, self.__iteration)
+        self.__logger.log_const_head_per_body_satisfaction(const_head_per_body_satisfaction, self.__iteration)
         self.__logger.log_rules(rules_loss, self.__iteration)
         self.__logger.log_entity_relation_statistics(self.__iteration)
         self.__logger.log_result_statistics(self.__iteration)
@@ -388,11 +398,19 @@ class ExpressivERegularizer(Regularizer):
             self.__const_rules.to_csv(self.__track_full_rule_loss_const_path)
 
     def __tracking_const_loss(self, row, relations):
-        intersections, mask = self.__compute_const_relation_intersections(row, self.__entity_weights, relations)
+        intersections, mask = self.__compute_const_body_relation_intersections(row, self.__entity_weights, relations)
         return self.__compute_const_loss(row, intersections, mask, self.__entity_weights, relations)
 
     # noinspection PyTypeChecker
-    def __compute_const_relation_intersections(self, rule, entities, relations) -> (torch.FloatTensor, torch.FloatTensor):
+    def __compute_const_body_relation_intersections(self, rule, entities, relations) -> (torch.FloatTensor, torch.FloatTensor):
+        rel_weights = relations[rule['body_ids'][0], :]
+        return self.__compute_const_relation_intersections(rule, 'const_pos_body', entities, rel_weights)
+
+    def __compute_const_head_relation_intersections(self, rule, entities, relations) -> (torch.FloatTensor, torch.FloatTensor):
+        rel_weights = relations[rule['head_id'], :]
+        return self.__compute_const_relation_intersections(rule, 'const_pos_head', entities, rel_weights)
+
+    def __compute_const_relation_intersections(self, rule, pos_key, entities, rel_weights) -> (torch.FloatTensor, torch.FloatTensor):
         if len(rule['body']) > 1:
             print("Only const rules with body length 1 implemented!")
 
@@ -408,11 +426,9 @@ class ExpressivERegularizer(Regularizer):
         #   - Intersections at top/bottom, left/right line: Return two intersection values
 
         const: torch.FloatTensor = entities[rule['const_id_body'], :]
-
-        rel_weights = relations[rule['body_ids'][0], :]
         d_h, d_t, c_h, c_t, s_h, s_t = preprocess_relations(rel_weights, tanh_map=self.__tanh_map, min_denom=self.__min_denom)
 
-        if rule['const_pos_body'] == 'X':
+        if rule[pos_key] == 'X':
             head_equation_intersections_1 = (const - c_h - d_h) / s_t
             head_equation_intersections_2 = (const - c_h + d_h) / s_t
 
@@ -435,7 +451,7 @@ class ExpressivERegularizer(Regularizer):
 
             return all_intersections, all_masks
 
-        elif rule['const_pos_body'] == 'Y':
+        elif rule[pos_key] == 'Y':
             head_equation_intersections_1 = c_h + s_t * const - d_h
             head_equation_intersections_2 = c_h + s_t * const + d_h
 

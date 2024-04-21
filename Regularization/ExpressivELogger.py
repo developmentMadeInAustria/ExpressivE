@@ -66,6 +66,12 @@ class ExpressivELogger:
     def log_const_body_satisfaction(self, percentage, iteration):
         self.__result_tracker.log_metrics({"const_body_satisfaction_percentage": percentage}, step=iteration)
 
+    def log_const_head_satisfaction(self, percentage, iteration):
+        self.__result_tracker.log_metrics({"const_head_satisfaction_percentage": percentage}, step=iteration)
+
+    def log_const_head_per_body_satisfaction(self, percentage, iteration):
+        self.__result_tracker.log_metrics({"const_head_per_body_satisfaction_percentage": percentage}, step=iteration)
+
     def log_alpha(self, alpha, iteration):
         self.__result_tracker.log_metrics({"alpha": alpha}, step=iteration)
 
