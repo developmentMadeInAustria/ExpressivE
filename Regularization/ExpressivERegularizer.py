@@ -259,16 +259,21 @@ class ExpressivERegularizer(Regularizer):
             # use iterrows() as apply() + sum() throws error:
             # "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
 
-            intersections, mask = self.__compute_const_body_relation_intersections(row, self.__entity_weights, x)
-            # Generally, we either have 2 or 0 intersections per dimension
-            const_body_intersections += float(torch.count_nonzero(mask)) / 2
-
+            body_intersections, body_mask = self.__compute_const_body_relation_intersections(row, self.__entity_weights, x)
             head_intersections, head_mask = self.__compute_const_head_relation_intersections(row, self.__entity_weights, x)
-            const_head_intersections += float(torch.count_nonzero(head_mask)) / 2
-            const_head_and_body_intersections += float(torch.count_nonzero(torch.logical_and(mask, head_mask))) / 2
+
+            # We start with a mask, where we have four bools (for each of the four line)
+            # We want to get to a mask, where we have one bool per dimension -> intersection or no intersection in this dim
+            body_intersection_dimensions = torch.any(body_mask, 1)
+            head_intersection_dimensions = torch.any(head_mask, 1)
+            body_and_head_intersection_dimensions = torch.logical_and(body_intersection_dimensions, head_intersection_dimensions)
+
+            const_body_intersections += float(torch.count_nonzero(body_intersection_dimensions))
+            const_head_intersections += float(torch.count_nonzero(head_intersection_dimensions))
+            const_head_and_body_intersections += float(torch.count_nonzero(body_and_head_intersection_dimensions))
 
             rule_multiplier = row['confidence'] if self.__apply_rule_confidence else 1.0
-            rule_loss = rule_multiplier * self.__compute_const_loss(row, intersections, mask,
+            rule_loss = rule_multiplier * self.__compute_const_loss(row, body_intersections, body_mask,
                                                                     self.__entity_weights, x)
 
             if rules_loss is None:
